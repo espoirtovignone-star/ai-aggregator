@@ -13,10 +13,12 @@ Endpoints :
     GET  /status          -> état des quotas par provider
 """
 import os
+import re
+import unicodedata
 
-from fastapi import Depends, FastAPI, HTTPException, Header
+from fastapi import Depends, FastAPI, HTTPException, Header, UploadFile, File
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from app.router import classify_prompt, pick_and_call, call_premium, NoModelAvailable, BudgetExceeded, InvalidModel
@@ -27,6 +29,8 @@ from app.config import MODELS, CATEGORIES, PROVIDERS, APP_ACCESS_TOKEN
 from app.youtube import extract_video_id, fetch_video_title, fetch_transcript, YoutubeError
 from app.prompts import build_revision_prompt
 from app.prompt_analyzer import analyze_prompt
+from app.pdf_export import build_pdf
+from app.file_extract import extract_text, UnsupportedFileType
 
 app = FastAPI(title="Agrégateur IA", version="0.4.0")
 
@@ -230,6 +234,85 @@ async def team(req: ChatRequest):
     except BudgetExceeded as e:
         raise HTTPException(402, str(e))
     return TeamResponse(**result)
+
+
+# ── /export/pdf ───────────────────────────────────────────────────────────────
+# Les autres formats (md, html, json, css) sont générés directement dans le
+# navigateur (aucun besoin de rendu serveur) — voir app/static/index.html.
+# Seul le PDF a besoin d'une vraie mise en page, donc un aller-retour serveur.
+
+def _safe_filename(title: str) -> str:
+    normalized = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode()
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", normalized).strip("-").lower()
+    return slug[:60] or "document"
+
+
+class ExportPdfRequest(BaseModel):
+    content: str
+    title: str | None = None
+
+
+@app.post("/export/pdf", dependencies=[Depends(require_token)])
+async def export_pdf(req: ExportPdfRequest):
+    if not req.content.strip():
+        raise HTTPException(400, "Rien à exporter : le contenu est vide.")
+
+    title = (req.title or "Document").strip() or "Document"
+    pdf_bytes = build_pdf(req.content, title)
+    filename = f"{_safe_filename(title)}.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ── /import/extract ──────────────────────────────────────────────────────────
+# Extrait le texte d'un fichier importé (PDF, Word, CSV, JSON, texte) pour
+# qu'il soit joint automatiquement au prochain message envoyé à l'IA.
+
+MAX_IMPORT_SIZE_BYTES = 15 * 1024 * 1024  # 15 Mo
+MAX_IMPORT_CHARS = 20_000  # ~5000 tokens : au-delà, ça mange le quota gratuit pour rien
+
+
+class ImportExtractResponse(BaseModel):
+    filename: str
+    content: str
+    char_count: int
+    truncated: bool
+
+
+@app.post("/import/extract", response_model=ImportExtractResponse, dependencies=[Depends(require_token)])
+async def import_extract(file: UploadFile = File(...)):
+    raw = await file.read()
+
+    if len(raw) > MAX_IMPORT_SIZE_BYTES:
+        raise HTTPException(413, "Fichier trop volumineux (limite : 15 Mo).")
+
+    filename = file.filename or "fichier"
+
+    try:
+        text = extract_text(filename, raw)
+    except UnsupportedFileType as e:
+        raise HTTPException(415, str(e))
+    except Exception as e:
+        raise HTTPException(422, f"Impossible de lire ce fichier : {e}")
+
+    text = text.strip()
+    if not text:
+        raise HTTPException(422, "Aucun texte n'a pu être extrait de ce fichier (image scannée sans OCR, page vide…).")
+
+    truncated = len(text) > MAX_IMPORT_CHARS
+    if truncated:
+        text = text[:MAX_IMPORT_CHARS]
+
+    return ImportExtractResponse(
+        filename=filename,
+        content=text,
+        char_count=len(text),
+        truncated=truncated,
+    )
 
 
 # ── /status & / ──────────────────────────────────────────────────────────────
