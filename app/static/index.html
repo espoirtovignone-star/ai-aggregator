@@ -297,6 +297,68 @@
     font-size: 12px;
   }
   select:disabled { opacity: 0.4; }
+
+  /* ── Export des réponses ─────────────────────────────────────────── */
+  .export-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+  .export-btn {
+    background: #232730;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 3px 10px;
+    height: 26px;
+    font-size: 12px;
+    cursor: pointer;
+    font-weight: 500;
+    line-height: 1;
+  }
+  .export-btn:hover:not(:disabled) { background: #2f3542; }
+  .export-btn:disabled { opacity: 0.5; cursor: default; }
+
+  /* ── Import de fichiers ──────────────────────────────────────────── */
+  #attach-btn {
+    background: #2a2e38;
+    color: var(--text);
+    border: 1px solid var(--border);
+    font-size: 16px;
+    padding: 0 14px;
+    height: 44px;
+    flex-shrink: 0;
+  }
+  #attach-btn:hover:not(:disabled) { background: #343843; }
+  #attach-btn:disabled { opacity: 0.5; cursor: default; }
+  .attachment-zone {
+    max-width: 800px;
+    margin: 0 auto 8px;
+  }
+  .attachment-zone.hidden { display: none; }
+  .attachment-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #1c2333;
+    border: 1px solid var(--accent);
+    color: var(--text);
+    font-size: 12px;
+    padding: 5px 8px 5px 12px;
+    border-radius: 20px;
+  }
+  .attachment-chip button {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 13px;
+    padding: 2px 6px;
+    height: auto;
+    border-radius: 50%;
+  }
+  .attachment-chip button:hover { color: var(--text); background: var(--border); }
 </style>
 </head>
 <body>
@@ -347,7 +409,12 @@
       <option value="">chargement…</option>
     </select>
   </div>
+  <div id="attachment-zone" class="attachment-zone hidden">
+    <span id="attachment-chip" class="attachment-chip"></span>
+  </div>
   <form id="chat-form">
+    <input type="file" id="file-input" accept=".txt,.md,.markdown,.json,.csv,.html,.htm,.css,.js,.py,.pdf,.docx" hidden>
+    <button type="button" id="attach-btn" title="Joindre un fichier (PDF, Word, texte, CSV, JSON…)">📎</button>
     <textarea id="prompt" placeholder="Écris ton message… (Entrée pour envoyer, Maj+Entrée pour une nouvelle ligne)" rows="1"></textarea>
     <button type="button" id="analyze-btn" title="Analyser et optimiser le prompt avant envoi">✨ Analyser</button>
     <button type="submit" id="send-btn">Envoyer</button>
@@ -365,6 +432,13 @@ const premiumProvider = document.getElementById("premium-provider");
 const modelToggle  = document.getElementById("model-toggle");
 const modelSelect  = document.getElementById("model-select");
 const statusLine   = document.getElementById("status-line");
+const fileInput      = document.getElementById("file-input");
+const attachBtn       = document.getElementById("attach-btn");
+const attachmentZone  = document.getElementById("attachment-zone");
+const attachmentChip  = document.getElementById("attachment-chip");
+
+// Pièce jointe en attente d'envoi : { filename, content, char_count, truncated }
+let pendingAttachment = null;
 
 // Panel d'analyse
 const analyzePanel    = document.getElementById("analyze-panel");
@@ -534,15 +608,207 @@ useOptimizedBtn.addEventListener("click", () => {
   form.requestSubmit();
 });
 
+// ── Export des réponses (MD / HTML / JSON / CSS en local, PDF via le serveur) ─
+
+function slugify(text) {
+  return (text || "document")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 50) || "document";
+}
+
+function downloadBlob(filename, mime, data) {
+  const blob = new Blob([data], { type: mime + ";charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function buildHtmlDoc(content, title) {
+  const escaped = content
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>${title}</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 20px; line-height: 1.6; color: #1a1a1a; background: #fff; }
+  h1 { border-bottom: 2px solid #4f7cff; padding-bottom: 8px; }
+  .footer { margin-top: 40px; font-size: 12px; color: #999; }
+</style>
+</head>
+<body>
+<h1>${title}</h1>
+<div>${escaped.replace(/\n/g, "<br>")}</div>
+<div class="footer">Généré par l'Agrégateur IA — Mon Bureau, le ${new Date().toLocaleString("fr-FR")}</div>
+</body>
+</html>`;
+}
+
+async function exportAs(ext, content, label, btnEl) {
+  const filename = `${slugify(label)}-${Date.now()}.${ext}`;
+
+  if (ext === "pdf") {
+    const original = btnEl.textContent;
+    btnEl.disabled = true;
+    btnEl.textContent = "…";
+    try {
+      const resp = await fetch("/export/pdf", {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ content, title: label }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        alert("Erreur export PDF : " + (err.detail || resp.status));
+        return;
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      alert("Impossible de contacter le serveur : " + err.message);
+    } finally {
+      btnEl.disabled = false;
+      btnEl.textContent = original;
+    }
+    return;
+  }
+
+  if (ext === "md") {
+    downloadBlob(filename, "text/markdown", content);
+  } else if (ext === "css") {
+    downloadBlob(filename, "text/css", content);
+  } else if (ext === "html") {
+    downloadBlob(filename, "text/html", buildHtmlDoc(content, label));
+  } else if (ext === "json") {
+    const payload = JSON.stringify(
+      { content, label, exported_at: new Date().toISOString() }, null, 2
+    );
+    downloadBlob(filename, "application/json", payload);
+  }
+}
+
+function addExportRow(container, content, label) {
+  const row = document.createElement("div");
+  row.className = "export-row";
+
+  const buttons = [
+    { ext: "md",   icon: "📝 MD",   title: "Télécharger en Markdown" },
+    { ext: "html", icon: "🌐 HTML", title: "Télécharger en HTML" },
+    { ext: "json", icon: "{ } JSON", title: "Télécharger en JSON" },
+    { ext: "css",  icon: "🎨 CSS",  title: "Télécharger en CSS" },
+    { ext: "pdf",  icon: "📕 PDF",  title: "Télécharger en PDF" },
+  ];
+
+  buttons.forEach((b) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "export-btn";
+    btn.title = b.title;
+    btn.textContent = b.icon;
+    btn.addEventListener("click", () => exportAs(b.ext, content, label, btn));
+    row.appendChild(btn);
+  });
+
+  container.appendChild(row);
+}
+
+// ── Import de fichiers (pièce jointe) ──────────────────────────────────────
+
+attachBtn.addEventListener("click", () => fileInput.click());
+
+function clearAttachment() {
+  pendingAttachment = null;
+  attachmentZone.classList.add("hidden");
+  attachmentChip.innerHTML = "";
+}
+
+fileInput.addEventListener("change", async () => {
+  const file = fileInput.files[0];
+  fileInput.value = "";
+  if (!file) return;
+
+  attachBtn.disabled = true;
+  const original = attachBtn.textContent;
+  attachBtn.textContent = "…";
+
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+    const resp = await fetch("/import/extract", {
+      method: "POST",
+      headers: authHeaders(), // pas de Content-Type ici : le navigateur le fixe lui-même pour un envoi multipart
+      body: formData,
+    });
+    const data = await resp.json();
+
+    if (resp.status === 401) {
+      localStorage.removeItem("accessToken");
+      alert("Code d'accès invalide. Recharge la page.");
+      return;
+    }
+    if (!resp.ok) {
+      alert("Erreur import : " + (data.detail || resp.status));
+      return;
+    }
+
+    pendingAttachment = data;
+    attachmentChip.innerHTML = "";
+    const label = document.createElement("span");
+    label.textContent =
+      `📎 ${data.filename} (${data.char_count.toLocaleString("fr-FR")} caractères` +
+      (data.truncated ? ", tronqué" : "") + ")";
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.textContent = "✕";
+    removeBtn.title = "Retirer la pièce jointe";
+    removeBtn.addEventListener("click", clearAttachment);
+    attachmentChip.appendChild(label);
+    attachmentChip.appendChild(removeBtn);
+    attachmentZone.classList.remove("hidden");
+  } catch (err) {
+    alert("Impossible de contacter le serveur : " + err.message);
+  } finally {
+    attachBtn.disabled = false;
+    attachBtn.textContent = original;
+  }
+});
+
 // ── Submit principal ─────────────────────────────────────────────────────────
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   const text = promptEl.value.trim();
-  if (!text) return;
+  if (!text && !pendingAttachment) return;
+
+  // Si un fichier est joint, son contenu est inséré automatiquement avant
+  // le message tapé — l'utilisateur voit juste le chip, pas le texte brut.
+  let sentPrompt = text;
+  if (pendingAttachment) {
+    sentPrompt =
+      `[Fichier joint : ${pendingAttachment.filename}]\n<<<contenu extrait>>>\n` +
+      `${pendingAttachment.content}\n<<<fin du fichier>>>\n\n${text}`.trim();
+  }
+  const attachedFilename = pendingAttachment ? pendingAttachment.filename : null;
 
   hideAnalysisPanel();
-  addMessage("user", text);
+  addMessage("user", text || `📎 ${attachedFilename}`, attachedFilename && text ? `Pièce jointe : ${attachedFilename}` : null);
+  clearAttachment();
   promptEl.value = "";
   promptEl.style.height = "auto";
   sendBtn.disabled = true;
@@ -554,7 +820,7 @@ form.addEventListener("submit", async (e) => {
   );
   typingEl.classList.add("typing");
 
-  const body = { prompt: text };
+  const body = { prompt: sentPrompt };
   if (!isTeam && premiumToggle.checked) {
     body.premium = true;
     body.premium_provider = premiumProvider.value;
@@ -597,6 +863,8 @@ form.addEventListener("submit", async (e) => {
       metaEl.className = "meta";
       metaEl.textContent = metaText;
       typingEl.appendChild(metaEl);
+
+      addExportRow(typingEl, data.response, isTeam ? "reponse-equipe" : data.category);
     }
   } catch (err) {
     typingEl.classList.remove("typing");
