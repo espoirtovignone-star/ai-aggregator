@@ -11,6 +11,7 @@ config.py et ceux repérés en direct chez les providers, triés par note de
 qualité. Un modèle qui plante 3 fois de suite est écarté 6 h automatiquement.
 """
 import logging
+import time
 
 from app.config import MODELS, ModelConfig, PROVIDERS
 from app.providers.client import call_model, ProviderError
@@ -21,9 +22,24 @@ from app.model_discovery import (
     candidats,
     est_sur_liste_noire,
     modeles_decouverts,
+    provider_en_pause,
     signaler_echec,
+    signaler_rate_limit,
     signaler_succes,
 )
+
+# Au-delà de ce délai, on arrête d'essayer des modèles et on rend la main :
+# le navigateur attend en face, mieux vaut une erreur claire à 45 s qu'une page
+# qui tourne pendant deux minutes parce que dix modèles échouent l'un après l'autre.
+DELAI_MAX_CASCADE = 45  # secondes
+
+
+def _est_rate_limit(e: ProviderError) -> bool:
+    """Un 429, ou un 200/400 dont le corps parle de limite de débit."""
+    if getattr(e, "status_code", None) == 429:
+        return True
+    texte = str(getattr(e, "detail", "") or e).lower()
+    return "rate limit" in texte or "rate-limit" in texte or "too many requests" in texte or "quota" in texte
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +103,10 @@ async def _try_forced_model(
         signaler_succes(provider, model_id)
         return provider, model_id, content
     except ProviderError as e:
-        signaler_echec(provider, model_id)
+        if _est_rate_limit(e):
+            signaler_rate_limit(provider, str(getattr(e, "detail", "")))
+        else:
+            signaler_echec(provider, model_id)
         logger.warning("Echec du modèle forcé %s/%s: %s, bascule sur la cascade normale", provider, model_id, e)
         return None
 
@@ -117,6 +136,7 @@ async def pick_and_call(
             return forced_result
 
     tried = set()
+    debut = time.monotonic()
     if forced_provider and forced_model_id:
         tried.add((forced_provider, forced_model_id))
 
@@ -137,13 +157,35 @@ async def pick_and_call(
                 continue
             if est_sur_liste_noire(m.provider, m.model_id):
                 continue
+            # Provider mis en pause par un 429 : inutile d'essayer ses autres
+            # modèles, c'est le compte entier qui est plafonné.
+            if provider_en_pause(m.provider):
+                continue
+            if time.monotonic() - debut > DELAI_MAX_CASCADE:
+                logger.warning("Cascade interrompue après %ss, on rend la main", DELAI_MAX_CASCADE)
+                raise NoModelAvailable(
+                    "Aucun modèle gratuit n'a répondu à temps. Les providers sont saturés, "
+                    "réessaie dans quelques minutes."
+                )
             try:
                 content, usage = await call_model(m.provider, m.model_id, prompt)
                 record_call(m.provider, tokens=usage["input_tokens"] + usage["output_tokens"])
                 signaler_succes(m.provider, m.model_id)
                 return m.provider, m.model_id, content
             except ProviderError as e:
-                signaler_echec(m.provider, m.model_id)
+                if _est_rate_limit(e):
+                    # Tout le provider est plafonné : on le met en pause, la
+                    # boucle sautera ses autres modèles dès le tour suivant.
+                    signaler_rate_limit(m.provider, str(getattr(e, "detail", "")))
+                else:
+                    signaler_echec(m.provider, m.model_id)
+                # On compte quand même l'appel : un 429 consomme du quota chez
+                # la plupart des providers, et sans ça le compteur local ne
+                # voyait jamais qu'on était à sec.
+                try:
+                    record_call(m.provider, tokens=0)
+                except Exception:
+                    pass
                 logger.warning("Echec %s/%s: %s", m.provider, m.model_id, e)
                 continue
 

@@ -66,7 +66,10 @@ _EXCLUS = (
 # subit régulièrement de la congestion upstream, Groq quasiment jamais). Ce
 # bonus n'entre PAS dans la note du modèle : il sert uniquement à départager
 # deux modèles de puissance comparable au moment de choisir lequel appeler.
-_BONUS_FIABILITE = {"groq": 6, "gemini": 3, "openrouter": 0}
+# Groq a un quota gratuit très large (des milliers d'appels/jour) et ne
+# limite quasiment jamais ; OpenRouter plafonne à quelques dizaines d'appels
+# gratuits par jour et renvoie des 429 dès qu'on insiste. D'où l'écart.
+_BONUS_FIABILITE = {"groq": 10, "gemini": 5, "openrouter": 0}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Notation : à quel point ce modèle est probablement bon
@@ -330,6 +333,14 @@ _cache: dict | None = None
 DUREE_LISTE_NOIRE = 6 * 3600  # 6 h : un modèle en panne est réessayé après
 SEUIL_LISTE_NOIRE = 3         # 3 échecs d'affilée avant mise à l'écart
 
+# Quand un provider répond "rate limit exceeded", inutile d'essayer ses autres
+# modèles : c'est le COMPTE qui est plafonné, pas le modèle. On met donc tout le
+# provider en pause et la cascade saute directement au provider suivant. Sans ça,
+# une limite OpenRouter faisait échouer 6 modèles à la suite, la requête traînait
+# et le navigateur finissait en timeout.
+PAUSE_RATE_LIMIT = 10 * 60      # 10 min pour une limite par minute
+PAUSE_LIMITE_JOURNALIERE = 3 * 3600  # 3 h quand c'est le quota du jour qui saute
+
 
 def _charger_cache() -> dict:
     global _cache
@@ -339,10 +350,11 @@ def _charger_cache() -> dict:
         with open(DISCOVERY_FILE, "r", encoding="utf-8") as f:
             _cache = json.load(f)
     except (OSError, json.JSONDecodeError):
-        _cache = {"maj": 0, "modeles": [], "echecs": {}}
+        _cache = {"maj": 0, "modeles": [], "echecs": {}, "pauses": {}}
     _cache.setdefault("echecs", {})
     _cache.setdefault("modeles", [])
     _cache.setdefault("maj", 0)
+    _cache.setdefault("pauses", {})
     return _cache
 
 
@@ -381,6 +393,37 @@ async def rafraichir(force: bool = False) -> dict:
         cache["maj"] = time.time()
         _sauver_cache()
     return {"actif": True, "modeles": len(cache["modeles"]), "maj": cache["maj"], "rafraichi": bool(modeles)}
+
+
+def signaler_rate_limit(provider: str, message: str = "") -> int:
+    """
+    Met TOUT le provider en pause après un 429. Renvoie la durée de la pause.
+    Un message évoquant une limite journalière déclenche une pause plus longue.
+    """
+    cache = _charger_cache()
+    texte = (message or "").lower()
+    journalier = any(mot in texte for mot in ("per day", "par jour", "daily", "day limit", "free-models-per-day"))
+    duree = PAUSE_LIMITE_JOURNALIERE if journalier else PAUSE_RATE_LIMIT
+    cache.setdefault("pauses", {})[provider] = time.time() + duree
+    _sauver_cache()
+    logger.warning("[Quota] %s en pause %s min (%s)", provider, duree // 60, message[:120])
+    return duree
+
+
+def provider_en_pause(provider: str) -> bool:
+    cache = _charger_cache()
+    fin = (cache.get("pauses") or {}).get(provider, 0)
+    return time.time() < fin
+
+
+def providers_en_pause() -> dict:
+    cache = _charger_cache()
+    maintenant = time.time()
+    return {
+        p: int(fin - maintenant)
+        for p, fin in (cache.get("pauses") or {}).items()
+        if fin > maintenant
+    }
 
 
 def signaler_echec(provider: str, model_id: str) -> None:
@@ -468,19 +511,22 @@ def candidats(category: str) -> list[ModelConfig]:
             tous.append(m)
             vus.add((m.provider, m.model_id))
 
-    retenus = [
-        m for m in tous
-        if category in m.categories
-        and PROVIDERS[m.provider].is_free
-        and not est_sur_liste_noire(m.provider, m.model_id)
-    ]
-    if not retenus:
-        retenus = [
-            m for m in tous
-            if "general" in m.categories
+    def utilisable(m, cat):
+        return (
+            cat in m.categories
             and PROVIDERS[m.provider].is_free
             and not est_sur_liste_noire(m.provider, m.model_id)
-        ]
+        )
+
+    retenus = [m for m in tous if utilisable(m, category)]
+    if not retenus:
+        retenus = [m for m in tous if utilisable(m, "general")]
+
+    # On écarte les providers en pause (429 récent). Si ça ne laisse plus rien,
+    # on remet tout le monde : mieux vaut retenter que ne rien répondre du tout.
+    sans_pause = [m for m in retenus if not provider_en_pause(m.provider)]
+    if sans_pause:
+        retenus = sans_pause
 
     if category in ("classification", "rapide"):
         # Ici on veut le plus RAPIDE, donc le plus petit : tri croissant.
@@ -502,6 +548,7 @@ def resume() -> dict:
         "age_heures": round((time.time() - cache.get("maj", 0)) / 3600, 1) if cache.get("maj") else None,
         "perime": cache_perime(),
         "nb_modeles_decouverts": len(cache.get("modeles", [])),
+        "providers_en_pause": providers_en_pause(),
         "liste_noire": [
             cle for cle, e in cache.get("echecs", {}).items()
             if e.get("n", 0) >= SEUIL_LISTE_NOIRE and time.time() - e.get("t", 0) <= DUREE_LISTE_NOIRE
