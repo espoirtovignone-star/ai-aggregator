@@ -1,9 +1,14 @@
 """
 Coeur de l'agrégateur :
 1. classify_prompt() : un petit modèle rapide tague le prompt (code, redaction, etc.)
-2. pick_and_call()   : on prend le meilleur modèle de cette catégorie qui a
+2. pick_and_call()   : on prend le MEILLEUR modèle de cette catégorie qui a
                         encore du quota dispo, avec fallback en cascade.
                         Un modèle précis peut aussi être forcé manuellement.
+
+Depuis la découverte automatique (app/model_discovery.py), la liste des
+candidats n'est plus figée : elle mélange les modèles écrits à la main dans
+config.py et ceux repérés en direct chez les providers, triés par note de
+qualité. Un modèle qui plante 3 fois de suite est écarté 6 h automatiquement.
 """
 import logging
 
@@ -12,6 +17,13 @@ from app.providers.client import call_model, ProviderError
 from app.quota import can_use, record_call
 from app.local_classifier import classify_local
 from app.budget import can_afford, record_spend, estimate_cost_usd
+from app.model_discovery import (
+    candidats,
+    est_sur_liste_noire,
+    modeles_decouverts,
+    signaler_echec,
+    signaler_succes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +46,18 @@ async def classify_prompt(prompt: str) -> str:
 
 
 def _candidates_for(category: str) -> list[ModelConfig]:
-    matches = [m for m in MODELS if category in m.categories]
-    if not matches:
-        matches = [m for m in MODELS if "general" in m.categories]
-    return sorted(matches, key=lambda m: m.priority)
+    """
+    Modèles à essayer pour cette catégorie, du meilleur au moins bon.
+    Toute la logique de tri et de fusion est dans app/model_discovery.py.
+    """
+    return candidats(category)
+
+
+def _modele_connu(provider: str, model_id: str) -> bool:
+    """Le modèle existe-t-il, soit dans config.py, soit parmi ceux découverts ?"""
+    if any(m.provider == provider and m.model_id == model_id for m in MODELS):
+        return True
+    return any(m.provider == provider and m.model_id == model_id for m in modeles_decouverts())
 
 
 async def _try_forced_model(
@@ -52,8 +72,11 @@ async def _try_forced_model(
     """
     if provider not in PROVIDERS or not PROVIDERS[provider].is_free:
         raise InvalidModel(f"'{provider}' n'est pas un provider gratuit valide.")
-    if not any(m.provider == provider and m.model_id == model_id for m in MODELS):
-        raise InvalidModel(f"Modèle {provider}/{model_id} inconnu (absent de MODELS dans config.py).")
+    if not _modele_connu(provider, model_id):
+        raise InvalidModel(
+            f"Modèle {provider}/{model_id} inconnu (ni dans config.py, ni parmi les modèles découverts). "
+            f"Appelle GET /models/discover?refresh=true pour rafraîchir le catalogue."
+        )
 
     if not can_use(provider, estimated_tokens=estimated_total):
         logger.info("Quota épuisé pour le modèle forcé %s/%s, bascule sur la cascade normale", provider, model_id)
@@ -61,8 +84,10 @@ async def _try_forced_model(
     try:
         content, usage = await call_model(provider, model_id, prompt)
         record_call(provider, tokens=usage["input_tokens"] + usage["output_tokens"])
+        signaler_succes(provider, model_id)
         return provider, model_id, content
     except ProviderError as e:
+        signaler_echec(provider, model_id)
         logger.warning("Echec du modèle forcé %s/%s: %s, bascule sur la cascade normale", provider, model_id, e)
         return None
 
@@ -110,11 +135,15 @@ async def pick_and_call(
             if not can_use(m.provider, estimated_tokens=estimated_total):
                 logger.info("Quota local insuffisant pour %s/%s, on saute", m.provider, m.model_id)
                 continue
+            if est_sur_liste_noire(m.provider, m.model_id):
+                continue
             try:
                 content, usage = await call_model(m.provider, m.model_id, prompt)
                 record_call(m.provider, tokens=usage["input_tokens"] + usage["output_tokens"])
+                signaler_succes(m.provider, m.model_id)
                 return m.provider, m.model_id, content
             except ProviderError as e:
+                signaler_echec(m.provider, m.model_id)
                 logger.warning("Echec %s/%s: %s", m.provider, m.model_id, e)
                 continue
 

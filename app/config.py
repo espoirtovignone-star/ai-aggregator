@@ -95,6 +95,10 @@ MODELS: list[ModelConfig] = [
 
     # Raisonnement / analyse complexe
     ModelConfig("groq", "openai/gpt-oss-120b", ["raisonnement"], priority=1),
+    # groq/compound : ce n'est pas un modèle mais un SYSTEME (modèle + recherche
+    # web + exécution de code intégrées). Très utile pour tout ce qui demande de
+    # vérifier une info d'actualité (fact-check, analyse d'article de veille).
+    ModelConfig("groq", "groq/compound", ["raisonnement"], priority=2),
     ModelConfig("openrouter", "nvidia/nemotron-3-ultra-550b-a55b:free", ["raisonnement"], priority=2),
     ModelConfig("groq", "llama-3.3-70b-versatile", ["raisonnement"], priority=3),
     ModelConfig("openrouter", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", ["raisonnement"], priority=4),
@@ -139,6 +143,29 @@ MAX_MONTHLY_SPEND_USD = float(os.environ.get("MAX_MONTHLY_SPEND_USD", "5.0"))
 # Code d'accès partagé, requis dès que le serveur est exposé hors de ta machine
 # (ex: via un tunnel). Si non défini, aucune protection n'est appliquée (usage local uniquement).
 APP_ACCESS_TOKEN = os.environ.get("APP_ACCESS_TOKEN")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DECOUVERTE AUTOMATIQUE DES MODELES (voir app/model_discovery.py)
+# ─────────────────────────────────────────────────────────────────────────────
+# La liste MODELS ci-dessus est la liste "de confiance", écrite à la main.
+# En plus de ça, l'agrégateur interroge tout seul les providers pour repérer les
+# NOUVEAUX modèles gratuits et les ajouter à la rotation, sans toucher au code.
+
+# Mettre MODEL_DISCOVERY=0 dans les variables d'env pour désactiver complètement.
+DISCOVERY_ENABLED = os.environ.get("MODEL_DISCOVERY", "1").lower() not in ("0", "false", "non")
+
+# Au bout de combien d'heures on retourne demander aux providers ce qui est neuf.
+DISCOVERY_MAX_AGE_HOURS = float(os.environ.get("MODEL_DISCOVERY_MAX_AGE_HOURS", "24"))
+
+# "qualite"  = on appelle TOUJOURS le modèle le mieux noté disponible (défaut,
+#              c'est ce qui donne les meilleures réponses).
+# "curated"  = on respecte l'ordre écrit à la main dans MODELS ci-dessus, les
+#              modèles découverts ne servent que de renfort.
+MODEL_SELECTION_MODE = os.environ.get("MODEL_SELECTION_MODE", "qualite")
+
+# Fichier où sont stockés les modèles découverts + les modèles en panne.
+DISCOVERY_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "models_discovered.json")
 
 
 def get_api_key(provider: str) -> str:

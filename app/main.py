@@ -10,8 +10,12 @@ Endpoints :
     POST /prompt/analyze  -> {prompt: str}  =>  thème détecté + prompt optimisé + diff pédagogique
     POST /youtube/fiche   -> {url: str}     =>  fiche de révision à partir d'une vidéo YouTube
     GET  /models          -> liste des modèles gratuits dispo, groupés par catégorie
+    GET  /models/discover -> catalogue découvert en direct chez les providers
+                              (?refresh=true pour forcer une nouvelle interrogation)
     GET  /status          -> état des quotas par provider
 """
+import asyncio
+import logging
 import os
 import re
 import unicodedata
@@ -31,8 +35,32 @@ from app.prompts import build_revision_prompt
 from app.prompt_analyzer import analyze_prompt
 from app.pdf_export import build_pdf
 from app.file_extract import extract_text, UnsupportedFileType
+from app.model_discovery import candidats, rafraichir, resume as discovery_resume
+from app.config import DISCOVERY_ENABLED
 
-app = FastAPI(title="Agrégateur IA", version="0.4.0")
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="Agrégateur IA", version="0.5.0")
+
+
+@app.on_event("startup")
+async def _decouverte_au_demarrage():
+    """
+    Au démarrage, on va voir en arrière-plan si de nouveaux modèles gratuits
+    sont apparus chez les providers. En arrière-plan = le serveur répond tout de
+    suite, la découverte se termine toute seule quelques secondes après.
+    """
+    if not DISCOVERY_ENABLED:
+        return
+
+    async def _tache():
+        try:
+            res = await rafraichir()
+            logger.info("[Découverte] %s modèles gratuits connus", res.get("modeles"))
+        except Exception as e:  # jamais bloquant
+            logger.warning("[Découverte] échec au démarrage : %s", e)
+
+    asyncio.create_task(_tache())
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -191,6 +219,11 @@ async def youtube_fiche(req: YoutubeFicheRequest):
 
 @app.get("/models", dependencies=[Depends(require_token)])
 async def list_models():
+    """
+    Liste des modèles gratuits. "curated" = écrits à la main dans config.py.
+    "ordre_effectif" = l'ordre dans lequel l'agrégateur les essaie VRAIMENT
+    pour chaque catégorie, découverte automatique comprise.
+    """
     return {
         "categories": CATEGORIES,
         "models": [
@@ -199,11 +232,29 @@ async def list_models():
                 "model_id": m.model_id,
                 "categories": m.categories,
                 "priority": m.priority,
+                "source": "curated",
             }
             for m in MODELS
             if PROVIDERS[m.provider].is_free
         ],
+        "ordre_effectif": {
+            cat: [f"{m.provider}/{m.model_id}" for m in candidats(cat)[:8]]
+            for cat in CATEGORIES
+        },
     }
+
+
+@app.get("/models/discover", dependencies=[Depends(require_token)])
+async def models_discover(refresh: bool = False):
+    """
+    Ce que les providers proposent gratuitement EN CE MOMENT.
+    ?refresh=true force une nouvelle interrogation (sinon, cache de 24 h).
+    """
+    if refresh or not DISCOVERY_ENABLED:
+        await rafraichir(force=refresh)
+    else:
+        await rafraichir(force=False)
+    return discovery_resume()
 
 
 # ── /team ─────────────────────────────────────────────────────────────────────
