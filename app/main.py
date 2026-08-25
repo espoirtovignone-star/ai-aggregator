@@ -36,7 +36,7 @@ from app.prompt_analyzer import analyze_prompt
 from app.pdf_export import build_pdf
 from app.file_extract import extract_text, UnsupportedFileType
 from app.model_discovery import candidats, rafraichir, resume as discovery_resume
-from app.config import DISCOVERY_ENABLED
+from app.config import DISCOVERY_ENABLED, MODEL_SELECTION_MODE
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +79,10 @@ class ChatRequest(BaseModel):
     model_id: str | None = None
     premium: bool = False
     premium_provider: str = "anthropic"
+    # qualite=True : pour CET appel seulement, on vise le modèle le mieux noté
+    # même s'il est chez un provider au quota avare (OpenRouter). À réserver
+    # aux analyses importantes — c'est ce qui consomme le quota gratuit.
+    qualite: bool = False
 
 
 class ChatResponse(BaseModel):
@@ -118,6 +122,7 @@ async def chat(req: ChatRequest):
             category,
             forced_provider=req.provider,
             forced_model_id=req.model_id,
+            mode="qualite" if req.qualite else None,
         )
     except InvalidModel as e:
         raise HTTPException(400, str(e))
@@ -237,8 +242,13 @@ async def list_models():
             for m in MODELS
             if PROVIDERS[m.provider].is_free
         ],
+        "mode_selection": MODEL_SELECTION_MODE,
         "ordre_effectif": {
             cat: [f"{m.provider}/{m.model_id}" for m in candidats(cat)[:8]]
+            for cat in CATEGORIES
+        },
+        "ordre_si_qualite": {
+            cat: [f"{m.provider}/{m.model_id}" for m in candidats(cat, "qualite")[:5]]
             for cat in CATEGORIES
         },
     }

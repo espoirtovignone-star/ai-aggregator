@@ -40,6 +40,7 @@ from app.config import (
     DISCOVERY_MAX_AGE_HOURS,
     MODELS,
     MODEL_SELECTION_MODE,
+    PROVIDER_ORDER,
     PROVIDERS,
     ModelConfig,
 )
@@ -481,6 +482,14 @@ def bonus_fiabilite(provider: str) -> int:
     return _BONUS_FIABILITE.get(provider, 0)
 
 
+def rang_provider(provider: str) -> int:
+    """Position du provider dans l'ordre de préférence (mode "fiable")."""
+    try:
+        return PROVIDER_ORDER.index(provider)
+    except ValueError:
+        return len(PROVIDER_ORDER)
+
+
 def note_de(m: ModelConfig) -> int:
     """Note d'un modèle, qu'il vienne du cache de découverte ou de config.py."""
     cache = _charger_cache()
@@ -490,13 +499,18 @@ def note_de(m: ModelConfig) -> int:
     return noter_modele(m.model_id)
 
 
-def candidats(category: str) -> list[ModelConfig]:
+def candidats(category: str, mode: str | None = None) -> list[ModelConfig]:
     """
     Liste ordonnée des modèles à essayer pour une catégorie donnée.
 
-    Deux modes (variable d'env MODEL_SELECTION_MODE) :
-      - "qualite" (par défaut) : on trie par NOTE décroissante, donc le modèle
-        le plus puissant disponible passe en premier, découvert ou pas.
+    Trois modes (variable d'env MODEL_SELECTION_MODE, ou paramètre `mode`
+    pour forcer le comportement d'un seul appel) :
+      - "fiable" (par défaut) : on suit l'ordre des providers (Groq, puis
+        Gemini, puis OpenRouter) et, à l'intérieur de chacun, le mieux noté.
+        C'est le mode qui préserve le quota gratuit.
+      - "qualite" : on trie par NOTE décroissante toutes provenances
+        confondues, donc le modèle le plus puissant passe en premier — au prix
+        du quota OpenRouter.
       - "curated" : on garde l'ordre écrit à la main dans config.py, et les
         modèles découverts ne servent qu'en renfort derrière.
 
@@ -504,6 +518,7 @@ def candidats(category: str) -> list[ModelConfig]:
     l'envers (le plus petit/rapide d'abord) : pour taguer un prompt, on veut
     de la vitesse, pas de la puissance.
     """
+    mode = mode or MODEL_SELECTION_MODE
     tous = list(MODELS)
     vus = {(m.provider, m.model_id) for m in tous}
     for m in modeles_decouverts():
@@ -532,10 +547,14 @@ def candidats(category: str) -> list[ModelConfig]:
         # Ici on veut le plus RAPIDE, donc le plus petit : tri croissant.
         return sorted(retenus, key=lambda m: (note_de(m) - bonus_fiabilite(m.provider), m.priority))
 
-    if MODEL_SELECTION_MODE == "curated":
+    if mode == "curated":
         return sorted(retenus, key=lambda m: (m.priority, -note_de(m)))
 
-    return sorted(retenus, key=lambda m: (-(note_de(m) + bonus_fiabilite(m.provider)), m.priority))
+    if mode == "qualite":
+        return sorted(retenus, key=lambda m: (-(note_de(m) + bonus_fiabilite(m.provider)), m.priority))
+
+    # mode "fiable" : le provider passe avant la note.
+    return sorted(retenus, key=lambda m: (rang_provider(m.provider), -note_de(m), m.priority))
 
 
 def resume() -> dict:

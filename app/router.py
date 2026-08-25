@@ -61,12 +61,13 @@ async def classify_prompt(prompt: str) -> str:
     return classify_local(prompt)
 
 
-def _candidates_for(category: str) -> list[ModelConfig]:
+def _candidates_for(category: str, mode: str | None = None) -> list[ModelConfig]:
     """
     Modèles à essayer pour cette catégorie, du meilleur au moins bon.
     Toute la logique de tri et de fusion est dans app/model_discovery.py.
+    `mode` permet de forcer "qualite" le temps d'un seul appel.
     """
-    return candidats(category)
+    return candidats(category, mode)
 
 
 def _modele_connu(provider: str, model_id: str) -> bool:
@@ -116,6 +117,7 @@ async def pick_and_call(
     category: str,
     forced_provider: str | None = None,
     forced_model_id: str | None = None,
+    mode: str | None = None,
 ) -> tuple[str, str, str]:
     """
     Essaie les modèles gratuits de la catégorie dans l'ordre de priorité, en
@@ -140,9 +142,9 @@ async def pick_and_call(
     if forced_provider and forced_model_id:
         tried.add((forced_provider, forced_model_id))
 
-    candidate_lists = [_candidates_for(category)]
+    candidate_lists = [_candidates_for(category, mode)]
     if category != "general":
-        candidate_lists.append(_candidates_for("general"))
+        candidate_lists.append(_candidates_for("general", mode))
 
     for candidates in candidate_lists:
         for m in candidates:

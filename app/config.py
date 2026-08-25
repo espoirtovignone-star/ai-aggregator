@@ -158,11 +158,30 @@ DISCOVERY_ENABLED = os.environ.get("MODEL_DISCOVERY", "1").lower() not in ("0", 
 # Au bout de combien d'heures on retourne demander aux providers ce qui est neuf.
 DISCOVERY_MAX_AGE_HOURS = float(os.environ.get("MODEL_DISCOVERY_MAX_AGE_HOURS", "24"))
 
-# "qualite"  = on appelle TOUJOURS le modèle le mieux noté disponible (défaut,
-#              c'est ce qui donne les meilleures réponses).
-# "curated"  = on respecte l'ordre écrit à la main dans MODELS ci-dessus, les
-#              modèles découverts ne servent que de renfort.
-MODEL_SELECTION_MODE = os.environ.get("MODEL_SELECTION_MODE", "qualite")
+# Comment l'agrégateur choisit quel modèle appeler en premier :
+#
+# "fiable"  = (DÉFAUT) on privilégie les providers au quota gratuit généreux,
+#             et à l'intérieur de chacun on prend le mieux noté. Concrètement :
+#             le meilleur modèle Groq d'abord, puis Gemini, puis OpenRouter en
+#             dernier recours. Groq autorise des milliers d'appels gratuits par
+#             jour ; OpenRouter en autorise une cinquantaine et renvoie des 429
+#             dès qu'on insiste. Ce mode évite de brûler le quota OpenRouter
+#             sur des tâches courantes (résumés, veille, fact-check).
+#
+# "qualite" = on appelle TOUJOURS le modèle le mieux noté toutes provenances
+#             confondues, même s'il est chez un provider avare. Meilleures
+#             réponses, mais quota gratuit épuisé beaucoup plus vite.
+#             Utilisable au coup par coup sans changer ce réglage : il suffit
+#             d'envoyer {"qualite": true} dans le corps de POST /chat.
+#
+# "curated" = on respecte l'ordre écrit à la main dans MODELS ci-dessus, les
+#             modèles découverts ne servent que de renfort.
+MODEL_SELECTION_MODE = os.environ.get("MODEL_SELECTION_MODE", "fiable")
+
+# Ordre de préférence des providers en mode "fiable" (0 = essayé en premier).
+# Modifiable sans toucher au code via PROVIDER_ORDER="gemini,groq,openrouter".
+_ordre_env = os.environ.get("PROVIDER_ORDER", "groq,gemini,openrouter")
+PROVIDER_ORDER = [p.strip() for p in _ordre_env.split(",") if p.strip()]
 
 # Fichier où sont stockés les modèles découverts + les modèles en panne.
 DISCOVERY_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "models_discovered.json")
