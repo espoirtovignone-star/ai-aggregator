@@ -359,6 +359,93 @@
     border-radius: 50%;
   }
   .attachment-chip button:hover { color: var(--text); background: var(--border); }
+
+  /* ── Modale « Pousser sur GitHub » ───────────────────────────────── */
+  .gh-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: 16px;
+  }
+  .gh-overlay.hidden { display: none; }
+  .gh-modal {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 460px;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 20px 22px;
+  }
+  .gh-modal h2 {
+    margin: 0 0 4px;
+    font-size: 17px;
+  }
+  .gh-modal .gh-sub {
+    color: var(--muted);
+    font-size: 12px;
+    margin-bottom: 16px;
+  }
+  .gh-field { margin-bottom: 12px; }
+  .gh-field label {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .gh-field input,
+  .gh-field select {
+    width: 100%;
+    background: #232730;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 13px;
+    font-family: inherit;
+  }
+  .gh-field input:focus,
+  .gh-field select:focus { outline: none; border-color: var(--accent); }
+  .gh-checks { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 14px; }
+  .gh-checks label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text);
+  }
+  .gh-checks input { width: auto; }
+  .gh-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .gh-actions button {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .gh-cancel { background: #232730; color: var(--text); }
+  .gh-cancel:hover { background: #2f3542; }
+  .gh-submit { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .gh-submit:hover:not(:disabled) { background: #3d67e0; }
+  .gh-submit:disabled { opacity: 0.5; cursor: default; }
+  .gh-result {
+    font-size: 12px;
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    white-space: pre-wrap;
+    display: none;
+  }
+  .gh-result.ok { display: block; background: var(--green); color: #fff; }
+  .gh-result.err { display: block; background: #5a1f1f; color: #ffd9d9; }
+  .gh-result.info { display: block; background: #1c2333; color: var(--text); }
+  .gh-dirty-note { color: var(--yellow-text); font-size: 11px; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -419,6 +506,49 @@
     <button type="button" id="analyze-btn" title="Analyser et optimiser le prompt avant envoi">✨ Analyser</button>
     <button type="submit" id="send-btn">Envoyer</button>
   </form>
+</div>
+
+<!-- Modale « Pousser sur GitHub » — cachée par défaut -->
+<div id="gh-overlay" class="gh-overlay hidden">
+  <div class="gh-modal">
+    <h2>📤 Pousser sur GitHub</h2>
+    <div class="gh-sub">Écrit le fichier dans le bon dossier du dépôt local, puis commit + push.</div>
+
+    <div class="gh-field">
+      <label for="gh-repo">Dépôt</label>
+      <select id="gh-repo"><option value="">chargement…</option></select>
+      <div id="gh-dirty-note" class="gh-dirty-note"></div>
+    </div>
+
+    <div class="gh-field">
+      <label for="gh-path">Dossier de destination (vide = racine du dépôt)</label>
+      <input id="gh-path" list="gh-folders" placeholder="ex : src/pages" autocomplete="off">
+      <datalist id="gh-folders"></datalist>
+    </div>
+
+    <div class="gh-field">
+      <label for="gh-filename">Nom du fichier</label>
+      <input id="gh-filename" placeholder="ex : notes.md" autocomplete="off">
+    </div>
+
+    <div class="gh-field">
+      <label for="gh-message">Message de commit</label>
+      <input id="gh-message" placeholder="Ajout via l'agrégateur IA" autocomplete="off">
+    </div>
+
+    <div class="gh-checks">
+      <label><input type="checkbox" id="gh-commit" checked> Créer un commit</label>
+      <label><input type="checkbox" id="gh-push" checked> Pousser sur GitHub (push)</label>
+      <label><input type="checkbox" id="gh-overwrite" checked> Écraser si le fichier existe déjà</label>
+    </div>
+
+    <div class="gh-actions">
+      <button type="button" class="gh-cancel" id="gh-cancel">Annuler</button>
+      <button type="button" class="gh-submit" id="gh-submit">Pousser</button>
+    </div>
+
+    <div id="gh-result" class="gh-result"></div>
+  </div>
 </div>
 
 <script>
@@ -725,8 +855,186 @@ function addExportRow(container, content, label) {
     row.appendChild(btn);
   });
 
+  // Pousser cette réponse dans un dépôt local GitHub Desktop.
+  const ghBtn = document.createElement("button");
+  ghBtn.type = "button";
+  ghBtn.className = "export-btn";
+  ghBtn.title = "Écrire dans un dépôt GitHub Desktop, puis commit + push";
+  ghBtn.textContent = "📤 GitHub";
+  ghBtn.addEventListener("click", () => openGithubModal(content, label));
+  row.appendChild(ghBtn);
+
   container.appendChild(row);
 }
+
+// ── Pousser sur GitHub Desktop ─────────────────────────────────────────────
+
+const ghOverlay   = document.getElementById("gh-overlay");
+const ghRepoSel   = document.getElementById("gh-repo");
+const ghFolders   = document.getElementById("gh-folders");
+const ghPathEl    = document.getElementById("gh-path");
+const ghFilename  = document.getElementById("gh-filename");
+const ghMessage   = document.getElementById("gh-message");
+const ghCommit    = document.getElementById("gh-commit");
+const ghPush      = document.getElementById("gh-push");
+const ghOverwrite = document.getElementById("gh-overwrite");
+const ghCancel    = document.getElementById("gh-cancel");
+const ghSubmit    = document.getElementById("gh-submit");
+const ghResult    = document.getElementById("gh-result");
+const ghDirtyNote = document.getElementById("gh-dirty-note");
+
+let ghContent = "";
+let ghRepos = [];        // cache de la dernière liste chargée
+let ghReposLoaded = false;
+
+// Devine une extension de fichier à partir du contenu (pour préremplir le nom).
+function guessExtension(content, label) {
+  const c = (content || "").trim();
+  if (/^\s*[{[]/.test(c) && /[}\]]\s*$/.test(c)) return "json";
+  if (/^\s*</.test(c) && /<\/(html|body|div|section)>/i.test(c)) return "html";
+  if (/^#{1,6}\s|\n#{1,6}\s|\n[-*]\s|```/.test(c)) return "md";
+  if (/\b(def |import |print\(|class .*:)/.test(c)) return "py";
+  if (/\b(function |const |let |=>|console\.log)/.test(c)) return "js";
+  if (/[.#][\w-]+\s*\{[^}]*:[^}]*\}/.test(c)) return "css";
+  return "md";
+}
+
+function renderRepoOptions() {
+  ghRepoSel.innerHTML = "";
+  if (!ghRepos.length) {
+    ghRepoSel.innerHTML = '<option value="">aucun dépôt détecté</option>';
+    return;
+  }
+  for (const r of ghRepos) {
+    const opt = document.createElement("option");
+    opt.value = r.name;
+    opt.textContent = r.name + (r.branch ? ` (${r.branch})` : "");
+    ghRepoSel.appendChild(opt);
+  }
+  updateFoldersForRepo();
+}
+
+function updateFoldersForRepo() {
+  const repo = ghRepos.find((r) => r.name === ghRepoSel.value);
+  ghFolders.innerHTML = "";
+  if (repo && repo.folders) {
+    for (const f of repo.folders) {
+      const opt = document.createElement("option");
+      opt.value = f;
+      ghFolders.appendChild(opt);
+    }
+  }
+  ghDirtyNote.textContent = repo && repo.dirty
+    ? "⚠ Ce dépôt a déjà des modifications non validées : le commit ne portera que sur ce fichier."
+    : "";
+}
+
+async function loadGithubRepos(force) {
+  if (ghReposLoaded && !force) return;
+  try {
+    const resp = await fetch("/github/repos", { headers: authHeaders() });
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const data = await resp.json();
+    ghRepos = data.repos || [];
+    ghReposLoaded = true;
+    renderRepoOptions();
+  } catch (err) {
+    ghRepoSel.innerHTML = '<option value="">erreur de chargement</option>';
+  }
+}
+
+function openGithubModal(content, label) {
+  ghContent = content;
+  ghResult.className = "gh-result";
+  ghResult.textContent = "";
+  ghSubmit.disabled = false;
+  ghSubmit.textContent = "Pousser";
+
+  const ext = guessExtension(content, label);
+  ghFilename.value = `${slugify(label)}.${ext}`;
+  ghMessage.value = "";
+  ghPathEl.value = "";
+
+  ghOverlay.classList.remove("hidden");
+  loadGithubRepos(false);
+}
+
+function closeGithubModal() {
+  ghOverlay.classList.add("hidden");
+}
+
+ghCancel.addEventListener("click", closeGithubModal);
+ghOverlay.addEventListener("click", (e) => {
+  if (e.target === ghOverlay) closeGithubModal();
+});
+ghRepoSel.addEventListener("change", updateFoldersForRepo);
+ghPush.addEventListener("change", () => {
+  // Un push sans commit n'a pas de sens : cocher push force commit.
+  if (ghPush.checked) ghCommit.checked = true;
+});
+ghCommit.addEventListener("change", () => {
+  if (!ghCommit.checked) ghPush.checked = false;
+});
+
+ghSubmit.addEventListener("click", async () => {
+  const repo = ghRepoSel.value;
+  if (!repo) {
+    ghResult.className = "gh-result err";
+    ghResult.textContent = "Choisis un dépôt.";
+    return;
+  }
+  if (!ghFilename.value.trim()) {
+    ghResult.className = "gh-result err";
+    ghResult.textContent = "Indique un nom de fichier.";
+    return;
+  }
+
+  ghSubmit.disabled = true;
+  ghSubmit.textContent = "…";
+  ghResult.className = "gh-result info";
+  ghResult.textContent = ghPush.checked ? "Écriture, commit et push en cours…" : "Écriture en cours…";
+
+  try {
+    const resp = await fetch("/github/push", {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        repo,
+        path: ghPathEl.value.trim(),
+        filename: ghFilename.value.trim(),
+        content: ghContent,
+        message: ghMessage.value.trim() || null,
+        commit: ghCommit.checked,
+        push: ghPush.checked,
+        overwrite: ghOverwrite.checked,
+      }),
+    });
+    const data = await resp.json();
+
+    if (resp.status === 401) {
+      localStorage.removeItem("accessToken");
+      ghResult.className = "gh-result err";
+      ghResult.textContent = "Code d'accès invalide. Recharge la page.";
+      return;
+    }
+    if (!resp.ok) {
+      ghResult.className = "gh-result err";
+      ghResult.textContent = data.detail || "Erreur inconnue.";
+      return;
+    }
+
+    ghResult.className = "gh-result ok";
+    ghResult.textContent = "✅ " + (data.message || "Fait.");
+    // La liste des dépôts a pu changer d'état (dirty) : on la rafraîchira au prochain ouvrir.
+    ghReposLoaded = false;
+  } catch (err) {
+    ghResult.className = "gh-result err";
+    ghResult.textContent = "Impossible de contacter le serveur : " + err.message;
+  } finally {
+    ghSubmit.disabled = false;
+    ghSubmit.textContent = "Pousser";
+  }
+});
 
 // ── Import de fichiers (pièce jointe) ──────────────────────────────────────
 

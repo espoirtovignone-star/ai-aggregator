@@ -84,6 +84,36 @@ cher disponible :
 Compter 1 à 3 minutes par requête (3 appels en série). Variable d'env optionnelle :
 `CLAUDE_CODE_TIMEOUT` (secondes, défaut 240).
 
+## Pousser une réponse dans un dépôt GitHub Desktop
+
+Sous chaque réponse, le bouton **📤 GitHub** ouvre une fenêtre pour écrire ce
+contenu comme fichier dans un de tes dépôts locaux (ceux clonés par GitHub
+Desktop), puis **commit + push** automatiquement.
+
+- **Dépôt** : liste déroulante des dépôts git détectés à côté de ce projet.
+- **Dossier** : le sous-dossier de destination (autocomplétion des dossiers
+  existants du dépôt), vide = racine.
+- **Nom de fichier** : prérempli avec une extension devinée d'après le contenu.
+- Cases **Créer un commit** / **Pousser (push)** / **Écraser** pour ajuster.
+
+Où l'agrégateur cherche les dépôts : le dossier **parent** de ce projet par
+défaut (là où GitHub Desktop range tes clones). Change-le avec la variable
+d'env `GITHUB_REPOS_DIR`. Le push tourne avec `GIT_TERMINAL_PROMPT=0` : s'il
+manque des identifiants, il échoue tout de suite (pas de blocage), et le commit
+local reste fait — tu peux alors pousser depuis GitHub Desktop.
+
+Endpoints correspondants :
+
+```bash
+curl localhost:8000/github/repos            # dépôts + dossiers détectés
+curl -X POST localhost:8000/github/push -H "Content-Type: application/json" \
+  -d '{"repo":"mon-bureau","path":"docs","filename":"notes.md","content":"# Notes","message":"Ajout notes"}'
+```
+
+Sécurité : écriture impossible hors du dépôt choisi (protection anti-`..`) et
+jamais dans `.git/`. Les tokens présents dans les URL de remote ne sont jamais
+renvoyés ni loggués.
+
 ## Utiliser (API directe)
 
 ```bash

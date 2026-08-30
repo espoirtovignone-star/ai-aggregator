@@ -12,6 +12,8 @@ Endpoints :
     GET  /models          -> liste des modèles gratuits dispo, groupés par catégorie
     GET  /models/discover -> catalogue découvert en direct chez les providers
                               (?refresh=true pour forcer une nouvelle interrogation)
+    GET  /github/repos    -> dépôts locaux GitHub Desktop détectés (+ leurs dossiers)
+    POST /github/push     -> écrit un fichier dans un dépôt, puis commit + push
     GET  /status          -> état des quotas par provider
 """
 import asyncio
@@ -37,6 +39,7 @@ from app.pdf_export import build_pdf
 from app.file_extract import extract_text, UnsupportedFileType
 from app.model_discovery import candidats, rafraichir, resume as discovery_resume
 from app.config import DISCOVERY_ENABLED, MODEL_SELECTION_MODE
+from app.github_push import list_repos, list_folders, push_file, GithubPushError
 
 logger = logging.getLogger(__name__)
 
@@ -374,6 +377,63 @@ async def import_extract(file: UploadFile = File(...)):
         char_count=len(text),
         truncated=truncated,
     )
+
+
+# ── /github ───────────────────────────────────────────────────────────────────
+# Pousser un fichier généré dans un dépôt local géré par GitHub Desktop :
+# écriture dans le bon dossier, puis commit + push automatiques.
+
+
+@app.get("/github/repos", dependencies=[Depends(require_token)])
+async def github_repos():
+    """Liste les dépôts locaux détectés + leurs dossiers, pour peupler l'UI."""
+    repos = list_repos()
+    return {
+        "repos": [
+            {**r.to_dict(), "folders": list_folders(r.path)}
+            for r in repos
+        ]
+    }
+
+
+class GithubPushRequest(BaseModel):
+    repo: str
+    path: str = ""          # sous-dossier de destination, ex: "src/pages"
+    filename: str
+    content: str
+    message: str | None = None
+    commit: bool = True
+    push: bool = True
+    overwrite: bool = True
+
+
+@app.post("/github/push", dependencies=[Depends(require_token)])
+async def github_push(req: GithubPushRequest):
+    if not req.content.strip():
+        raise HTTPException(400, "Rien à pousser : le contenu est vide.")
+    if not req.filename.strip():
+        raise HTTPException(400, "Nom de fichier manquant.")
+
+    # git peut bloquer quelques secondes (push réseau) : on ne bloque pas la boucle asyncio.
+    try:
+        report = await asyncio.to_thread(
+            push_file,
+            req.repo,
+            req.path,
+            req.filename,
+            req.content,
+            req.message or "",
+            req.commit,
+            req.push and req.commit,  # pas de push sans commit
+            req.overwrite,
+        )
+    except GithubPushError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:  # garde-fou : ne jamais laisser fuiter un chemin/token brut
+        from app.github_push import scrub
+        raise HTTPException(500, "Échec inattendu : " + scrub(str(e)))
+
+    return report
 
 
 # ── /status & / ──────────────────────────────────────────────────────────────
