@@ -1,4 +1,5 @@
 data/quota.json
+data/models_discovered.json
 .env
 __pycache__/
 venv/

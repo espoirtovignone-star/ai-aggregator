@@ -29,7 +29,7 @@ _DEFAULT_REPOS_DIR = os.path.dirname(_PROJECT_ROOT)
 REPOS_DIR = os.path.abspath(os.environ.get("GITHUB_REPOS_DIR") or _DEFAULT_REPOS_DIR)
 
 # Délai max (secondes) accordé à un push avant abandon.
-PUSH_TIMEOUT = int(os.environ.get("GITHUB_PUSH_TIMEOUT", "90"))
+PUSH_TIMEOUT = int(os.environ.get("GITHUB_PUSH_TIMEOUT") or "90")
 
 # Dossiers qu'on ne propose pas comme destination (bruit / hors sujet).
 _IGNORED_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv",

@@ -138,7 +138,9 @@ PREMIUM_CATEGORY = "premium"
 
 # Plafond de dépense mensuel en dollars pour les providers payants.
 # Modifiable via la variable d'env MAX_MONTHLY_SPEND_USD dans .env
-MAX_MONTHLY_SPEND_USD = float(os.environ.get("MAX_MONTHLY_SPEND_USD", "5.0"))
+# NB: `or "5.0"` et pas un défaut d'argument : une variable présente mais VIDE
+# dans .env (MAX_MONTHLY_SPEND_USD=) renvoie "" et ferait planter float("").
+MAX_MONTHLY_SPEND_USD = float(os.environ.get("MAX_MONTHLY_SPEND_USD") or "5.0")
 
 # Code d'accès partagé, requis dès que le serveur est exposé hors de ta machine
 # (ex: via un tunnel). Si non défini, aucune protection n'est appliquée (usage local uniquement).
@@ -156,7 +158,7 @@ APP_ACCESS_TOKEN = os.environ.get("APP_ACCESS_TOKEN")
 DISCOVERY_ENABLED = os.environ.get("MODEL_DISCOVERY", "1").lower() not in ("0", "false", "non")
 
 # Au bout de combien d'heures on retourne demander aux providers ce qui est neuf.
-DISCOVERY_MAX_AGE_HOURS = float(os.environ.get("MODEL_DISCOVERY_MAX_AGE_HOURS", "24"))
+DISCOVERY_MAX_AGE_HOURS = float(os.environ.get("MODEL_DISCOVERY_MAX_AGE_HOURS") or "24")
 
 # Comment l'agrégateur choisit quel modèle appeler en premier :
 #
