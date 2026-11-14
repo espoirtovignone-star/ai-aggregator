@@ -11,6 +11,7 @@ config.py et ceux repérés en direct chez les providers, triés par note de
 qualité. Un modèle qui plante 3 fois de suite est écarté 6 h automatiquement.
 """
 import logging
+import os
 import time
 
 from app.config import MODELS, ModelConfig, PROVIDERS
@@ -202,8 +203,21 @@ async def call_premium(prompt: str, provider: str, model_id: str) -> tuple[str, 
     automatiquement depuis pick_and_call — uniquement sur demande explicite de l'utilisateur.
     Vérifie le budget mensuel AVANT l'appel (estimation) et enregistre le coût réel APRÈS.
     """
+    if provider == "nvidia":
+        if os.environ.get("NVIDIA_ENABLED", "false").strip().lower() not in ("1", "true", "yes", "oui"):
+            raise BudgetExceeded("NVIDIA est désactivé. Active NVIDIA_ENABLED=true seulement après vérification des conditions tarifaires de ton compte.")
+        if not model_id:
+            raise ValueError("Définis NVIDIA_MODEL_ID avec un modèle disponible dans ton catalogue NVIDIA.")
+        if not can_use("nvidia"):
+            raise BudgetExceeded("Limite locale NVIDIA atteinte (RPM/RPD).")
+        content, usage = await call_model(provider, model_id, prompt)
+        record_call(provider, tokens=usage["input_tokens"] + usage["output_tokens"])
+        # NVIDIA ne publie pas un tarif unique valable pour tous les modèles :
+        # ne pas afficher un coût nul trompeur ni prétendre plafonner la facture.
+        return content, {**usage, "cost_usd": None}
+
     if provider not in ("anthropic", "openai"):
-        raise ValueError("Seuls les providers premium anthropic et openai sont autorisés ici.")
+        raise ValueError("Seuls les providers premium anthropic, openai et NVIDIA explicitement activé sont autorisés ici.")
 
     rough_estimate = estimate_cost_usd(provider, input_tokens=len(prompt) // 4, output_tokens=500)
     if not can_afford(rough_estimate):

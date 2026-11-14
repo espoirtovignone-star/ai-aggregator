@@ -38,6 +38,15 @@ class ProviderEndpointTests(unittest.TestCase):
             "https://api.sambanova.ai/v1/chat/completions",
         )
 
+    def test_nvidia_nim_endpoint(self):
+        self.assertEqual(
+            chat_completions_url("nvidia"),
+            "https://integrate.api.nvidia.com/v1/chat/completions",
+        )
+
+    def test_nvidia_is_not_automatically_free(self):
+        self.assertFalse(PROVIDERS["nvidia"].is_free)
+
 
 
     def test_metered_providers_are_excluded_from_automatic_candidates(self):
@@ -57,6 +66,12 @@ class PremiumProviderGuardTests(unittest.IsolatedAsyncioTestCase):
         from app.router import call_premium
         with self.assertRaisesRegex(ValueError, "Seuls les providers premium"):
             await call_premium("test", "sambanova", "any-model")
+
+    async def test_nvidia_is_disabled_without_explicit_opt_in(self):
+        from app.router import call_premium, BudgetExceeded
+        with patch.dict(os.environ, {"NVIDIA_ENABLED": "false"}):
+            with self.assertRaisesRegex(BudgetExceeded, "NVIDIA est désactivé"):
+                await call_premium("test", "nvidia", "some-model")
 
 
 if __name__ == "__main__":

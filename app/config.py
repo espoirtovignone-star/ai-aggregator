@@ -69,6 +69,17 @@ PROVIDERS: dict[str, ProviderConfig] = {
         # SambaNova fonctionne par crédits payants : opt-in explicite obligatoire.
         is_free=False,
     ),
+    "nvidia": ProviderConfig(
+        name="nvidia",
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key_env="NVIDIA_API_KEY",
+        rpm=5,
+        rpd=100,
+        tpm=None,
+        # NIM hosted peut être facturé selon le modèle et les crédits du compte.
+        # Appels explicites uniquement, désactivés par défaut.
+        is_free=False,
+    ),
     # --- Providers payants, jamais choisis automatiquement (voir router.py) ---
     "anthropic": ProviderConfig(
         name="anthropic",

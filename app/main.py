@@ -102,9 +102,14 @@ async def chat(req: ChatRequest):
         raise HTTPException(400, "Le prompt est vide.")
 
     if req.premium:
-        if req.premium_provider not in ("anthropic", "openai"):
-            raise HTTPException(400, "premium_provider doit être 'anthropic' ou 'openai'.")
-        model_id = "claude-sonnet-4-6" if req.premium_provider == "anthropic" else "gpt-5-mini"
+        if req.premium_provider not in ("anthropic", "openai", "nvidia"):
+            raise HTTPException(400, "premium_provider doit être 'anthropic', 'openai' ou 'nvidia'.")
+        if req.premium_provider == "nvidia":
+            model_id = os.environ.get("NVIDIA_MODEL_ID", "").strip()
+            if not model_id:
+                raise HTTPException(400, "NVIDIA_MODEL_ID n'est pas configuré dans Render.")
+        else:
+            model_id = "claude-sonnet-4-6" if req.premium_provider == "anthropic" else "gpt-5-mini"
         try:
             content, usage = await call_premium(req.prompt, req.premium_provider, model_id)
         except BudgetExceeded as e:
