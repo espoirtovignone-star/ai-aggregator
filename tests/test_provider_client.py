@@ -36,5 +36,18 @@ class ProviderEndpointTests(unittest.TestCase):
         )
 
 
+
+class PremiumProviderGuardTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cloudflare_cannot_be_called_through_premium_path(self):
+        from app.router import call_premium
+        with self.assertRaisesRegex(ValueError, "Seuls les providers premium"):
+            await call_premium("test", "cloudflare", "any-model")
+
+    async def test_sambanova_cannot_be_called_through_premium_path(self):
+        from app.router import call_premium
+        with self.assertRaisesRegex(ValueError, "Seuls les providers premium"):
+            await call_premium("test", "sambanova", "any-model")
+
+
 if __name__ == "__main__":
     unittest.main()
