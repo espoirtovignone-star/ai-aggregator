@@ -37,6 +37,13 @@ class ProviderEndpointTests(unittest.TestCase):
 
 
 
+    def test_metered_providers_are_excluded_from_automatic_candidates(self):
+        from app.model_discovery import candidats
+        providers = {model.provider for model in candidats("general", mode="curated")}
+        self.assertNotIn("cloudflare", providers)
+        self.assertNotIn("sambanova", providers)
+
+
 class PremiumProviderGuardTests(unittest.IsolatedAsyncioTestCase):
     async def test_cloudflare_cannot_be_called_through_premium_path(self):
         from app.router import call_premium
