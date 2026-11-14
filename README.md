@@ -1,7 +1,6 @@
 # Agrégateur IA
 
-Route chaque prompt vers un modèle gratuit activé (Groq, Gemini, OpenRouter). Cloudflare Workers AI et SambaNova sont intégrés mais restent désactivés automatiquement par défaut, car leur usage peut être facturé.
-selon la catégorie détectée et le quota restant.
+Route chaque prompt vers un modèle gratuit activé (Groq, Gemini, OpenRouter), selon la catégorie détectée et le quota restant. Cloudflare Workers AI et SambaNova sont intégrés mais restent désactivés automatiquement par défaut, car leur usage peut être facturé.
 
 ## Setup
 
@@ -11,10 +10,17 @@ cp .env.example .env
 # remplis les clés des providers que tu souhaites activer
 ```
 
-Clés gratuites :
+Clés / comptes fournisseurs :
 - Groq : console.groq.com
 - Gemini : aistudio.google.com/apikey
-- OpenRouter : openrouter.ai/keys\n- Cloudflare Workers AI : dash.cloudflare.com (API Token + Account ID)\n- SambaNova : cloud.sambanova.ai (API Key)\n\nLes limites RPM/RPD de Cloudflare et SambaNova configurées dans l'application sont des\ngarde-fous locaux prudents, pas des quotas gratuits garantis par les fournisseurs.\nL'accès gratuit, les modèles disponibles et les conditions peuvent dépendre du compte.\nNVIDIA est préparé séparément et n'est pas routé automatiquement.
+- OpenRouter : openrouter.ai/keys
+- Cloudflare Workers AI : dash.cloudflare.com (API Token + Account ID)
+- SambaNova : cloud.sambanova.ai (API Key)
+
+Les limites RPM/RPD de Cloudflare et SambaNova configurées dans l'application sont des
+garde-fous locaux prudents, pas des quotas gratuits garantis par les fournisseurs.
+L'accès gratuit, les modèles disponibles et les conditions peuvent dépendre du compte.
+NVIDIA est préparé séparément et n'est pas routé automatiquement.
 
 ## Lancer
 
