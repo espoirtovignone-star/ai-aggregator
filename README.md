@@ -18,7 +18,7 @@ Clés / comptes fournisseurs :
 - SambaNova : cloud.sambanova.ai (API Key)
 
 Cloudflare peut être facturé au-delà de l'allocation gratuite du compte. SambaNova fonctionne avec des crédits et les conditions d'accès peuvent dépendre du compte. Les deux providers restent donc exclus de la cascade automatique tant que le coût réel n'a pas été confirmé. Les limites locales ne constituent pas des quotas gratuits garantis.
-NVIDIA est préparé séparément et n'est pas routé automatiquement.
+NVIDIA n'est pas intégré dans cette version. Les appels Anthropic/OpenAI sont désactivés par défaut : pour les autoriser explicitement, définir `MAX_MONTHLY_SPEND_USD` à une valeur positive. Sur Render gratuit, le suivi local du budget peut être réinitialisé au redémarrage : ne pas considérer ce plafond comme une garantie de facturation fournisseur.
 
 ## Lancer
 
