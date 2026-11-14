@@ -12,6 +12,17 @@ from app.config import PROVIDERS, get_api_key
 TIMEOUT = httpx.Timeout(60.0, connect=10.0)
 
 
+def chat_completions_url(provider: str) -> str:
+    """Construit l'endpoint OpenAI-compatible du provider."""
+    cfg = PROVIDERS[provider]
+    if provider == "cloudflare":
+        account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+        if not account_id:
+            raise RuntimeError("CLOUDFLARE_ACCOUNT_ID est manquant.")
+        return f"{cfg.base_url.rstrip('/')}/{account_id}/ai/v1/chat/completions"
+    return cfg.base_url.rstrip("/") + "/chat/completions"
+
+
 class ProviderError(Exception):
     def __init__(self, provider: str, status_code: int, detail: str):
         self.provider = provider
@@ -35,13 +46,7 @@ async def call_model(
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
 
-    if provider == "cloudflare":
-        account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
-        if not account_id:
-            raise RuntimeError("CLOUDFLARE_ACCOUNT_ID est manquant.")
-        url = f"{cfg.base_url.rstrip('/')}/{account_id}/ai/v1/chat/completions"
-    else:
-        url = cfg.base_url.rstrip("/") + "/chat/completions"
+    url = chat_completions_url(provider)
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {"model": model_id, "messages": messages}
     # Anthropic exige max_tokens explicitement via sa couche de compat OpenAI
