@@ -70,7 +70,7 @@ _EXCLUS = (
 # Groq a un quota gratuit très large (des milliers d'appels/jour) et ne
 # limite quasiment jamais ; OpenRouter plafonne à quelques dizaines d'appels
 # gratuits par jour et renvoie des 429 dès qu'on insiste. D'où l'écart.
-_BONUS_FIABILITE = {"groq": 10, "gemini": 5, "sambanova": 3, "cloudflare": 2, "openrouter": 0}
+_BONUS_FIABILITE = {"groq": 10, "gemini": 5, "openrouter": 0}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Notation : à quel point ce modèle est probablement bon
@@ -304,7 +304,7 @@ async def _lister_gemini(client: httpx.AsyncClient) -> list[dict]:
 
 
 async def interroger_providers() -> list[dict]:
-    """Interroge les trois providers en parallèle. Un échec n'en bloque aucun autre."""
+    """Interroge les providers gratuits disposant ici d'un catalogue vérifié."""
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         resultats = await asyncio.gather(
             _lister_groq(client),
