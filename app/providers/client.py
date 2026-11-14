@@ -33,7 +33,13 @@ async def call_model(
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
 
-    url = cfg.base_url.rstrip("/") + "/chat/completions"
+    if provider == "cloudflare":
+        account_id = __import__("os").environ.get("CLOUDFLARE_ACCOUNT_ID")
+        if not account_id:
+            raise RuntimeError("CLOUDFLARE_ACCOUNT_ID est manquant.")
+        url = f"{cfg.base_url.rstrip('/')}/{account_id}/ai/v1/chat/completions"
+    else:
+        url = cfg.base_url.rstrip("/") + "/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {"model": model_id, "messages": messages}
     # Anthropic exige max_tokens explicitement via sa couche de compat OpenAI
