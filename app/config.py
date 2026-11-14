@@ -66,6 +66,8 @@ PROVIDERS: dict[str, ProviderConfig] = {
         rpm=5,
         rpd=100,
         tpm=None,
+        # SambaNova fonctionne par crédits payants : opt-in explicite obligatoire.
+        is_free=os.environ.get("SAMBANOVA_ENABLE_AUTO", "0").lower() in ("1", "true", "yes"),
     ),
     # --- Providers payants, jamais choisis automatiquement (voir router.py) ---
     "anthropic": ProviderConfig(
@@ -151,7 +153,7 @@ MODELS: list[ModelConfig] = [
     # de catalogue non vérifiée.
     ModelConfig("cloudflare", "@cf/meta/llama-3.1-8b-instruct-fp8-fast", ["classification", "rapide", "general"], priority=3),
     ModelConfig("sambanova", "Meta-Llama-3.3-70B-Instruct", ["raisonnement", "redaction", "creatif", "general"], priority=3),
-    ModelConfig("sambanova", "Qwen3-32B", ["code", "raisonnement", "general"], priority=3),
+    ModelConfig("sambanova", "GLM-5.3", ["raisonnement", "redaction", "general"], priority=3),
 
     # --- Premium (payant) : jamais sélectionnés par le classifieur automatique.
     # Utilisables uniquement via un appel explicite (voir router.call_premium).
