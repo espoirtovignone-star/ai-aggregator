@@ -47,6 +47,28 @@ PROVIDERS: dict[str, ProviderConfig] = {
         rpm=20,
         rpd=50,  # passe à 1000 si 10$ de crédits achetés une fois
     ),
+    "cloudflare": ProviderConfig(
+        name="cloudflare",
+        # L'URL complète inclut l'Account ID, ajouté par providers/client.py.
+        base_url="https://api.cloudflare.com/client/v4/accounts",
+        api_key_env="CLOUDFLARE_API_TOKEN",
+        rpm=5,
+        rpd=100,
+        tpm=None,
+        # Workers AI est facturé au-delà de l’allocation gratuite du compte.
+        # Activation automatique uniquement après validation explicite du propriétaire.
+        is_free=False,
+    ),
+    "sambanova": ProviderConfig(
+        name="sambanova",
+        base_url="https://api.sambanova.ai/v1",
+        api_key_env="SAMBANOVA_API_KEY",
+        rpm=5,
+        rpd=100,
+        tpm=None,
+        # SambaNova fonctionne par crédits payants : opt-in explicite obligatoire.
+        is_free=False,
+    ),
     # --- Providers payants, jamais choisis automatiquement (voir router.py) ---
     "anthropic": ProviderConfig(
         name="anthropic",
@@ -125,6 +147,13 @@ MODELS: list[ModelConfig] = [
     ModelConfig("openrouter", "nvidia/nemotron-3-nano-30b-a3b:free", ["general"], priority=4),
     ModelConfig("gemini", "gemini-2.5-flash-lite", ["general"], priority=5),
     ModelConfig("openrouter", "openai/gpt-oss-20b:free", ["general"], priority=6),
+
+    # Cloudflare Workers AI et SambaNova : quotas locaux prudents (pas des plafonds
+    # contractuels fournisseur). Les modèles sont épinglés pour éviter une découverte
+    # de catalogue non vérifiée.
+    ModelConfig("cloudflare", "@cf/meta/llama-3.1-8b-instruct-fp8-fast", ["classification", "rapide", "general"], priority=3),
+    ModelConfig("sambanova", "Meta-Llama-3.3-70B-Instruct", ["raisonnement", "redaction", "creatif", "general"], priority=3),
+    ModelConfig("sambanova", "GLM-5.3", ["raisonnement", "redaction", "general"], priority=3),
 
     # --- Premium (payant) : jamais sélectionnés par le classifieur automatique.
     # Utilisables uniquement via un appel explicite (voir router.call_premium).

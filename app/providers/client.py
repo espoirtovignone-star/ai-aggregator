@@ -3,11 +3,24 @@ Client unifié : Groq, Gemini et OpenRouter parlent tous le protocole
 OpenAI-compatible (/chat/completions). Un seul client suffit, on change
 juste base_url + api_key + model selon le provider choisi par le router.
 """
+import os
+
 import httpx
 
 from app.config import PROVIDERS, get_api_key
 
 TIMEOUT = httpx.Timeout(60.0, connect=10.0)
+
+
+def chat_completions_url(provider: str) -> str:
+    """Construit l'endpoint OpenAI-compatible du provider."""
+    cfg = PROVIDERS[provider]
+    if provider == "cloudflare":
+        account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+        if not account_id:
+            raise RuntimeError("CLOUDFLARE_ACCOUNT_ID est manquant.")
+        return f"{cfg.base_url.rstrip('/')}/{account_id}/ai/v1/chat/completions"
+    return cfg.base_url.rstrip("/") + "/chat/completions"
 
 
 class ProviderError(Exception):
@@ -33,7 +46,7 @@ async def call_model(
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
 
-    url = cfg.base_url.rstrip("/") + "/chat/completions"
+    url = chat_completions_url(provider)
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {"model": model_id, "messages": messages}
     # Anthropic exige max_tokens explicitement via sa couche de compat OpenAI

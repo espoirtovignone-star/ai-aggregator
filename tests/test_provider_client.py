@@ -1,0 +1,60 @@
+import os
+import unittest
+from unittest.mock import patch
+
+from app.config import MODELS, PROVIDERS
+from app.providers.client import chat_completions_url
+
+
+class ProviderEndpointTests(unittest.TestCase):
+    def test_cloudflare_endpoint_uses_account_id_and_v1_prefix(self):
+        with patch.dict(os.environ, {"CLOUDFLARE_ACCOUNT_ID": "account-test"}):
+            self.assertEqual(
+                chat_completions_url("cloudflare"),
+                "https://api.cloudflare.com/client/v4/accounts/account-test/ai/v1/chat/completions",
+            )
+
+    def test_cloudflare_endpoint_fails_closed_without_account_id(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CLOUDFLARE_ACCOUNT_ID", None)
+            with self.assertRaisesRegex(RuntimeError, "CLOUDFLARE_ACCOUNT_ID"):
+                chat_completions_url("cloudflare")
+
+    def test_metered_providers_are_not_marked_free(self):
+        self.assertFalse(PROVIDERS["cloudflare"].is_free)
+        self.assertFalse(PROVIDERS["sambanova"].is_free)
+
+    def test_curated_models_exist_for_both_providers(self):
+        models = {(model.provider, model.model_id) for model in MODELS}
+        self.assertIn(("cloudflare", "@cf/meta/llama-3.1-8b-instruct-fp8-fast"), models)
+        self.assertIn(("sambanova", "GLM-5.3"), models)
+
+    def test_sambanova_endpoint(self):
+        self.assertEqual(
+            chat_completions_url("sambanova"),
+            "https://api.sambanova.ai/v1/chat/completions",
+        )
+
+
+
+    def test_metered_providers_are_excluded_from_automatic_candidates(self):
+        from app.model_discovery import candidats
+        providers = {model.provider for model in candidats("general", mode="curated")}
+        self.assertNotIn("cloudflare", providers)
+        self.assertNotIn("sambanova", providers)
+
+
+class PremiumProviderGuardTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cloudflare_cannot_be_called_through_premium_path(self):
+        from app.router import call_premium
+        with self.assertRaisesRegex(ValueError, "Seuls les providers premium"):
+            await call_premium("test", "cloudflare", "any-model")
+
+    async def test_sambanova_cannot_be_called_through_premium_path(self):
+        from app.router import call_premium
+        with self.assertRaisesRegex(ValueError, "Seuls les providers premium"):
+            await call_premium("test", "sambanova", "any-model")
+
+
+if __name__ == "__main__":
+    unittest.main()

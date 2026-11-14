@@ -304,7 +304,7 @@ async def _lister_gemini(client: httpx.AsyncClient) -> list[dict]:
 
 
 async def interroger_providers() -> list[dict]:
-    """Interroge les trois providers en parallèle. Un échec n'en bloque aucun autre."""
+    """Interroge les providers gratuits disposant ici d'un catalogue vérifié."""
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         resultats = await asyncio.gather(
             _lister_groq(client),

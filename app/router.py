@@ -202,8 +202,8 @@ async def call_premium(prompt: str, provider: str, model_id: str) -> tuple[str, 
     automatiquement depuis pick_and_call — uniquement sur demande explicite de l'utilisateur.
     Vérifie le budget mensuel AVANT l'appel (estimation) et enregistre le coût réel APRÈS.
     """
-    if PROVIDERS[provider].is_free:
-        raise ValueError(f"{provider} est un provider gratuit, utilise pick_and_call à la place.")
+    if provider not in ("anthropic", "openai"):
+        raise ValueError("Seuls les providers premium anthropic et openai sont autorisés ici.")
 
     rough_estimate = estimate_cost_usd(provider, input_tokens=len(prompt) // 4, output_tokens=500)
     if not can_afford(rough_estimate):

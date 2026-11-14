@@ -102,7 +102,7 @@ async def chat(req: ChatRequest):
         raise HTTPException(400, "Le prompt est vide.")
 
     if req.premium:
-        if req.premium_provider not in PROVIDERS or PROVIDERS[req.premium_provider].is_free:
+        if req.premium_provider not in ("anthropic", "openai"):
             raise HTTPException(400, "premium_provider doit être 'anthropic' ou 'openai'.")
         model_id = "claude-sonnet-4-6" if req.premium_provider == "anthropic" else "gpt-5-mini"
         try:
