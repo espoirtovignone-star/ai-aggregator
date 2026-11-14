@@ -3,6 +3,8 @@ Client unifié : Groq, Gemini et OpenRouter parlent tous le protocole
 OpenAI-compatible (/chat/completions). Un seul client suffit, on change
 juste base_url + api_key + model selon le provider choisi par le router.
 """
+import os
+
 import httpx
 
 from app.config import PROVIDERS, get_api_key
@@ -34,7 +36,7 @@ async def call_model(
     messages.append({"role": "user", "content": prompt})
 
     if provider == "cloudflare":
-        account_id = __import__("os").environ.get("CLOUDFLARE_ACCOUNT_ID")
+        account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
         if not account_id:
             raise RuntimeError("CLOUDFLARE_ACCOUNT_ID est manquant.")
         url = f"{cfg.base_url.rstrip('/')}/{account_id}/ai/v1/chat/completions"
