@@ -1,6 +1,6 @@
 # Agrégateur IA
 
-Route chaque prompt vers un modèle disponible (Groq, Gemini, SambaNova, Cloudflare Workers AI, OpenRouter),
+Route chaque prompt vers un modèle gratuit activé (Groq, Gemini, OpenRouter). Cloudflare Workers AI et SambaNova sont intégrés mais restent désactivés automatiquement par défaut, car leur usage peut être facturé.
 selon la catégorie détectée et le quota restant.
 
 ## Setup
