@@ -17,7 +17,7 @@ Clés / comptes fournisseurs :
 - Cloudflare Workers AI : dash.cloudflare.com (API Token + Account ID)
 - SambaNova : cloud.sambanova.ai (API Key)
 
-Cloudflare facture à l'usage au-delà de l'allocation gratuite du compte. SambaNova Free demande l'achat de crédits avant les requêtes. Les deux providers sont donc exclus de la cascade automatique pour éviter toute dépense non autorisée. Les limites locales ne constituent pas des quotas gratuits garantis.
+Cloudflare peut être facturé au-delà de l'allocation gratuite du compte. SambaNova fonctionne avec des crédits et les conditions d'accès peuvent dépendre du compte. Les deux providers restent donc exclus de la cascade automatique tant que le coût réel n'a pas été confirmé. Les limites locales ne constituent pas des quotas gratuits garantis.
 NVIDIA est préparé séparément et n'est pas routé automatiquement.
 
 ## Lancer
