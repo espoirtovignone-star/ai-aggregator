@@ -36,11 +36,18 @@ DELAI_MAX_CASCADE = 45  # secondes
 
 
 def _est_rate_limit(e: ProviderError) -> bool:
-    """Un 429, ou un 200/400 dont le corps parle de limite de débit."""
-    if getattr(e, "status_code", None) == 429:
+    """Détecte quota, crédit ou accès payant : on met le compte en pause."""
+    code = getattr(e, "status_code", None)
+    if code in (402, 403, 429):
         return True
     texte = str(getattr(e, "detail", "") or e).lower()
-    return "rate limit" in texte or "rate-limit" in texte or "too many requests" in texte or "quota" in texte
+    indicateurs = (
+        "rate limit", "rate-limit", "too many requests", "quota",
+        "payment required", "billing", "insufficient credit",
+        "insufficient balance", "payment method", "free tier",
+        "upgrade required", "exceeded your allowance",
+    )
+    return any(mot in texte for mot in indicateurs)
 
 logger = logging.getLogger(__name__)
 
@@ -104,8 +111,8 @@ async def _try_forced_model(
         record_call(provider, tokens=usage["input_tokens"] + usage["output_tokens"])
         signaler_succes(provider, model_id)
         return provider, model_id, content
-    except ProviderError as e:
-        if _est_rate_limit(e):
+    except (ProviderError, RuntimeError) as e:
+        if isinstance(e, ProviderError) and _est_rate_limit(e):
             signaler_rate_limit(provider, str(getattr(e, "detail", "")))
         else:
             signaler_echec(provider, model_id)
@@ -175,8 +182,8 @@ async def pick_and_call(
                 record_call(m.provider, tokens=usage["input_tokens"] + usage["output_tokens"])
                 signaler_succes(m.provider, m.model_id)
                 return m.provider, m.model_id, content
-            except ProviderError as e:
-                if _est_rate_limit(e):
+            except (ProviderError, RuntimeError) as e:
+                if isinstance(e, ProviderError) and _est_rate_limit(e):
                     # Tout le provider est plafonné : on le met en pause, la
                     # boucle sautera ses autres modèles dès le tour suivant.
                     signaler_rate_limit(m.provider, str(getattr(e, "detail", "")))
