@@ -55,6 +55,9 @@ PROVIDERS: dict[str, ProviderConfig] = {
         rpm=5,
         rpd=100,
         tpm=None,
+        # Workers AI est facturé au-delà de l’allocation gratuite du compte.
+        # Activation automatique uniquement après validation explicite du propriétaire.
+        is_free=os.environ.get("CLOUDFLARE_ENABLE_AUTO", "0").lower() in ("1", "true", "yes"),
     ),
     "sambanova": ProviderConfig(
         name="sambanova",
@@ -146,8 +149,7 @@ MODELS: list[ModelConfig] = [
     # Cloudflare Workers AI et SambaNova : quotas locaux prudents (pas des plafonds
     # contractuels fournisseur). Les modèles sont épinglés pour éviter une découverte
     # de catalogue non vérifiée.
-    ModelConfig("cloudflare", "@cf/meta/llama-3.1-8b-instruct", ["classification", "rapide", "general"], priority=3),
-    ModelConfig("cloudflare", "@cf/meta/llama-3.3-70b-instruct-fp8-fast", ["raisonnement", "redaction", "creatif", "general"], priority=4),
+    ModelConfig("cloudflare", "@cf/meta/llama-3.1-8b-instruct-fp8-fast", ["classification", "rapide", "general"], priority=3),
     ModelConfig("sambanova", "Meta-Llama-3.3-70B-Instruct", ["raisonnement", "redaction", "creatif", "general"], priority=3),
     ModelConfig("sambanova", "Qwen3-32B", ["code", "raisonnement", "general"], priority=3),
 
