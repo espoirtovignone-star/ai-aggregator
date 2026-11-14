@@ -1,6 +1,6 @@
 # Agrégateur IA
 
-Route chaque prompt vers un modèle gratuit activé (Groq, Gemini, OpenRouter), selon la catégorie détectée et le quota restant. Cloudflare Workers AI et SambaNova ont leurs endpoints configurés, mais sont exclus du routage automatique car leur usage peut être facturé.
+Route chaque prompt vers un modèle gratuit activé selon sa catégorie et les quotas restants. Groq, Gemini et OpenRouter restent les moteurs de base. Cloudflare Workers AI et SambaNova peuvent rejoindre automatiquement la cascade uniquement après confirmation explicite de leur palier gratuit, avec basculement vers le fournisseur suivant en cas de quota ou de refus d'accès.
 
 ## Setup
 
@@ -17,7 +17,7 @@ Clés / comptes fournisseurs :
 - Cloudflare Workers AI : dash.cloudflare.com (API Token + Account ID)
 - SambaNova : cloud.sambanova.ai (API Key)
 
-Cloudflare peut être facturé au-delà de l'allocation gratuite du compte. SambaNova fonctionne avec des crédits et les conditions d'accès peuvent dépendre du compte. Les deux providers restent donc exclus de la cascade automatique tant que le coût réel n'a pas été confirmé. Les limites locales ne constituent pas des quotas gratuits garantis.
+**Activation sans facturation :** dans Render, définir `CLOUDFLARE_FREE_TIER_CONFIRMED=true` uniquement si le compte est sur **Workers Free** (10 000 Neurons/jour ; au-delà, les opérations échouent sans basculer vers un plan payant). Définir `SAMBANOVA_FREE_TIER_CONFIRMED=true` uniquement si aucun moyen de paiement n'est lié au compte SambaNova (palier Free). Ces deux variables restent à `false` par défaut. Les modèles SambaNova proposés dans la cascade sont limités aux modèles listés dans la documentation du palier Free. En cas de quota, crédit insuffisant ou refus de facturation (HTTP 402/403/429), le fournisseur est mis en pause et Kofi passe au suivant. Cette protection ne remplace pas la vérification du plan du compte : ne jamais activer les flags sur un compte payant.
 NVIDIA NIM est intégré comme moteur explicite via `https://integrate.api.nvidia.com/v1` (API compatible OpenAI). Il n'est jamais choisi automatiquement. Renseigner `NVIDIA_API_KEY` et `NVIDIA_MODEL_ID`, puis définir `NVIDIA_ENABLED=true` uniquement après vérification des crédits et tarifs du modèle dans le compte NVIDIA : les conditions varient selon le modèle et le compte. Les quotas RPM/RPD locaux sont des garde-fous d'usage, pas une garantie contre la facturation fournisseur. Les appels Anthropic/OpenAI restent désactivés par défaut : pour les autoriser explicitement, définir `MAX_MONTHLY_SPEND_USD` à une valeur positive. Sur Render gratuit, le suivi local du budget peut être réinitialisé au redémarrage : ne pas considérer ce plafond comme une garantie de facturation fournisseur.
 
 ## Lancer
