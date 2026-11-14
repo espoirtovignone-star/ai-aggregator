@@ -47,6 +47,23 @@ PROVIDERS: dict[str, ProviderConfig] = {
         rpm=20,
         rpd=50,  # passe à 1000 si 10$ de crédits achetés une fois
     ),
+    "cloudflare": ProviderConfig(
+        name="cloudflare",
+        # L'URL complète inclut l'Account ID, ajouté par providers/client.py.
+        base_url="https://api.cloudflare.com/client/v4/accounts",
+        api_key_env="CLOUDFLARE_API_TOKEN",
+        rpm=5,
+        rpd=100,
+        tpm=None,
+    ),
+    "sambanova": ProviderConfig(
+        name="sambanova",
+        base_url="https://api.sambanova.ai/v1",
+        api_key_env="SAMBANOVA_API_KEY",
+        rpm=5,
+        rpd=100,
+        tpm=None,
+    ),
     # --- Providers payants, jamais choisis automatiquement (voir router.py) ---
     "anthropic": ProviderConfig(
         name="anthropic",
@@ -126,6 +143,14 @@ MODELS: list[ModelConfig] = [
     ModelConfig("gemini", "gemini-2.5-flash-lite", ["general"], priority=5),
     ModelConfig("openrouter", "openai/gpt-oss-20b:free", ["general"], priority=6),
 
+    # Cloudflare Workers AI et SambaNova : quotas locaux prudents (pas des plafonds
+    # contractuels fournisseur). Les modèles sont épinglés pour éviter une découverte
+    # de catalogue non vérifiée.
+    ModelConfig("cloudflare", "@cf/meta/llama-3.1-8b-instruct", ["classification", "rapide", "general"], priority=3),
+    ModelConfig("cloudflare", "@cf/meta/llama-3.3-70b-instruct-fp8-fast", ["raisonnement", "redaction", "creatif", "general"], priority=4),
+    ModelConfig("sambanova", "Meta-Llama-3.3-70B-Instruct", ["raisonnement", "redaction", "creatif", "general"], priority=3),
+    ModelConfig("sambanova", "Qwen3-32B", ["code", "raisonnement", "general"], priority=3),
+
     # --- Premium (payant) : jamais sélectionnés par le classifieur automatique.
     # Utilisables uniquement via un appel explicite (voir router.call_premium).
     ModelConfig("anthropic", "claude-sonnet-4-6", ["premium"], priority=1),
@@ -182,7 +207,7 @@ MODEL_SELECTION_MODE = os.environ.get("MODEL_SELECTION_MODE", "fiable")
 
 # Ordre de préférence des providers en mode "fiable" (0 = essayé en premier).
 # Modifiable sans toucher au code via PROVIDER_ORDER="gemini,groq,openrouter".
-_ordre_env = os.environ.get("PROVIDER_ORDER", "groq,gemini,openrouter")
+_ordre_env = os.environ.get("PROVIDER_ORDER", "groq,gemini,sambanova,cloudflare,openrouter")
 PROVIDER_ORDER = [p.strip() for p in _ordre_env.split(",") if p.strip()]
 
 # Fichier où sont stockés les modèles découverts + les modèles en panne.
