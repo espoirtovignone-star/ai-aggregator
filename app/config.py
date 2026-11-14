@@ -166,10 +166,11 @@ CATEGORIES = ["classification", "code", "raisonnement", "redaction", "creatif", 
 PREMIUM_CATEGORY = "premium"
 
 # Plafond de dépense mensuel en dollars pour les providers payants.
+# Désactivé par défaut : aucun appel premium sans opt-in explicite.
 # Modifiable via la variable d'env MAX_MONTHLY_SPEND_USD dans .env
 # NB: `or "5.0"` et pas un défaut d'argument : une variable présente mais VIDE
 # dans .env (MAX_MONTHLY_SPEND_USD=) renvoie "" et ferait planter float("").
-MAX_MONTHLY_SPEND_USD = float(os.environ.get("MAX_MONTHLY_SPEND_USD") or "5.0")
+MAX_MONTHLY_SPEND_USD = float(os.environ.get("MAX_MONTHLY_SPEND_USD") or "0.0")
 
 # Code d'accès partagé, requis dès que le serveur est exposé hors de ta machine
 # (ex: via un tunnel). Si non défini, aucune protection n'est appliquée (usage local uniquement).
