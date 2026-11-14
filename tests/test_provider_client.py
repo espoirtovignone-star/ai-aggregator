@@ -2,6 +2,7 @@ import os
 import unittest
 from unittest.mock import patch
 
+from app.config import MODELS, PROVIDERS
 from app.providers.client import chat_completions_url
 
 
@@ -18,6 +19,15 @@ class ProviderEndpointTests(unittest.TestCase):
             os.environ.pop("CLOUDFLARE_ACCOUNT_ID", None)
             with self.assertRaisesRegex(RuntimeError, "CLOUDFLARE_ACCOUNT_ID"):
                 chat_completions_url("cloudflare")
+
+    def test_metered_providers_are_not_marked_free(self):
+        self.assertFalse(PROVIDERS["cloudflare"].is_free)
+        self.assertFalse(PROVIDERS["sambanova"].is_free)
+
+    def test_curated_models_exist_for_both_providers(self):
+        models = {(model.provider, model.model_id) for model in MODELS}
+        self.assertIn(("cloudflare", "@cf/meta/llama-3.1-8b-instruct-fp8-fast"), models)
+        self.assertIn(("sambanova", "GLM-5.3"), models)
 
     def test_sambanova_endpoint(self):
         self.assertEqual(
