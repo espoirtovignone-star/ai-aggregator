@@ -57,7 +57,7 @@ PROVIDERS: dict[str, ProviderConfig] = {
         tpm=None,
         # Workers AI est facturé au-delà de l’allocation gratuite du compte.
         # Activation automatique uniquement après validation explicite du propriétaire.
-        is_free=os.environ.get("CLOUDFLARE_ENABLE_AUTO", "0").lower() in ("1", "true", "yes"),
+        is_free=False,
     ),
     "sambanova": ProviderConfig(
         name="sambanova",
@@ -67,7 +67,7 @@ PROVIDERS: dict[str, ProviderConfig] = {
         rpd=100,
         tpm=None,
         # SambaNova fonctionne par crédits payants : opt-in explicite obligatoire.
-        is_free=os.environ.get("SAMBANOVA_ENABLE_AUTO", "0").lower() in ("1", "true", "yes"),
+        is_free=False,
     ),
     # --- Providers payants, jamais choisis automatiquement (voir router.py) ---
     "anthropic": ProviderConfig(
