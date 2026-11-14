@@ -80,7 +80,16 @@ PROVIDERS: dict[str, ProviderConfig] = {
         # Appels explicites uniquement, désactivés par défaut.
         is_free=False,
     ),
-    # --- Providers payants, jamais choisis automatiquement (voir router.py) ---
+    # Les deux fournisseurs conditionnels ne sont considérés gratuits que si le
+# propriétaire confirme le plan sans facturation. Les flags sont volontairement
+# désactivés par défaut : aucune requête ne peut déclencher de frais par défaut.
+def _env_true(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "oui")
+
+PROVIDERS["cloudflare"].is_free = _env_true("CLOUDFLARE_FREE_TIER_CONFIRMED")
+PROVIDERS["sambanova"].is_free = _env_true("SAMBANOVA_FREE_TIER_CONFIRMED")
+
+# --- Providers payants, jamais choisis automatiquement (voir router.py) ---
     "anthropic": ProviderConfig(
         name="anthropic",
         base_url="https://api.anthropic.com/v1",
@@ -164,7 +173,8 @@ MODELS: list[ModelConfig] = [
     # de catalogue non vérifiée.
     ModelConfig("cloudflare", "@cf/meta/llama-3.1-8b-instruct-fp8-fast", ["classification", "rapide", "general"], priority=3),
     ModelConfig("sambanova", "Meta-Llama-3.3-70B-Instruct", ["raisonnement", "redaction", "creatif", "general"], priority=3),
-    ModelConfig("sambanova", "GLM-5.3", ["raisonnement", "redaction", "general"], priority=3),
+    ModelConfig("sambanova", "DeepSeek-V3.1", ["raisonnement", "general"], priority=5),
+    ModelConfig("sambanova", "gpt-oss-120b", ["raisonnement", "code", "general"], priority=6),
 
     # --- Premium (payant) : jamais sélectionnés par le classifieur automatique.
     # Utilisables uniquement via un appel explicite (voir router.call_premium).
@@ -223,7 +233,7 @@ MODEL_SELECTION_MODE = os.environ.get("MODEL_SELECTION_MODE", "fiable")
 
 # Ordre de préférence des providers en mode "fiable" (0 = essayé en premier).
 # Modifiable sans toucher au code via PROVIDER_ORDER="gemini,groq,openrouter".
-_ordre_env = os.environ.get("PROVIDER_ORDER", "groq,gemini,openrouter")
+_ordre_env = os.environ.get("PROVIDER_ORDER", "groq,gemini,openrouter,cloudflare,sambanova")
 PROVIDER_ORDER = [p.strip() for p in _ordre_env.split(",") if p.strip()]
 
 # Fichier où sont stockés les modèles découverts + les modèles en panne.
