@@ -211,7 +211,7 @@ MODEL_SELECTION_MODE = os.environ.get("MODEL_SELECTION_MODE", "fiable")
 
 # Ordre de préférence des providers en mode "fiable" (0 = essayé en premier).
 # Modifiable sans toucher au code via PROVIDER_ORDER="gemini,groq,openrouter".
-_ordre_env = os.environ.get("PROVIDER_ORDER", "groq,gemini,sambanova,cloudflare,openrouter")
+_ordre_env = os.environ.get("PROVIDER_ORDER", "groq,gemini,openrouter")
 PROVIDER_ORDER = [p.strip() for p in _ordre_env.split(",") if p.strip()]
 
 # Fichier où sont stockés les modèles découverts + les modèles en panne.
