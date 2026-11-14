@@ -2,11 +2,14 @@ import os
 import unittest
 from unittest.mock import patch
 
-from app.config import MODELS, PROVIDERS
+from app.config import MODELS, PROVIDERS, MAX_MONTHLY_SPEND_USD
 from app.providers.client import chat_completions_url
 
 
 class ProviderEndpointTests(unittest.TestCase):
+    def test_default_premium_budget_is_disabled(self):
+        self.assertEqual(MAX_MONTHLY_SPEND_USD, 0.0)
+
     def test_cloudflare_endpoint_uses_account_id_and_v1_prefix(self):
         with patch.dict(os.environ, {"CLOUDFLARE_ACCOUNT_ID": "account-test"}):
             self.assertEqual(
