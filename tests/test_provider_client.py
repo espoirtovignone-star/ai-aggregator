@@ -30,7 +30,7 @@ class ProviderEndpointTests(unittest.TestCase):
     def test_curated_models_exist_for_both_providers(self):
         models = {(model.provider, model.model_id) for model in MODELS}
         self.assertIn(("cloudflare", "@cf/meta/llama-3.1-8b-instruct-fp8-fast"), models)
-        self.assertIn(("sambanova", "GLM-5.3"), models)
+        self.assertIn(("sambanova", "Meta-Llama-3.3-70B-Instruct"), models)
 
     def test_sambanova_endpoint(self):
         self.assertEqual(
@@ -47,7 +47,16 @@ class ProviderEndpointTests(unittest.TestCase):
     def test_nvidia_is_not_automatically_free(self):
         self.assertFalse(PROVIDERS["nvidia"].is_free)
 
+    def test_conditional_providers_are_disabled_without_free_tier_confirmation(self):
+        self.assertFalse(PROVIDERS["cloudflare"].is_free)
+        self.assertFalse(PROVIDERS["sambanova"].is_free)
 
+    def test_billing_and_quota_errors_trigger_provider_fallback(self):
+        from app.router import _est_rate_limit
+        from app.providers.client import ProviderError
+        for status in (402, 403, 429):
+            self.assertTrue(_est_rate_limit(ProviderError("cloudflare", status, "denied")))
+        self.assertTrue(_est_rate_limit(ProviderError("sambanova", 400, "insufficient credits")))
 
     def test_metered_providers_are_excluded_from_automatic_candidates(self):
         from app.model_discovery import candidats
