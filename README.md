@@ -18,7 +18,7 @@ Clés / comptes fournisseurs :
 - SambaNova : cloud.sambanova.ai (API Key)
 
 Cloudflare peut être facturé au-delà de l'allocation gratuite du compte. SambaNova fonctionne avec des crédits et les conditions d'accès peuvent dépendre du compte. Les deux providers restent donc exclus de la cascade automatique tant que le coût réel n'a pas été confirmé. Les limites locales ne constituent pas des quotas gratuits garantis.
-NVIDIA n'est pas intégré dans cette version. Les appels Anthropic/OpenAI sont désactivés par défaut : pour les autoriser explicitement, définir `MAX_MONTHLY_SPEND_USD` à une valeur positive. Sur Render gratuit, le suivi local du budget peut être réinitialisé au redémarrage : ne pas considérer ce plafond comme une garantie de facturation fournisseur.
+NVIDIA NIM est intégré comme moteur explicite via `https://integrate.api.nvidia.com/v1` (API compatible OpenAI). Il n'est jamais choisi automatiquement. Renseigner `NVIDIA_API_KEY` et `NVIDIA_MODEL_ID`, puis définir `NVIDIA_ENABLED=true` uniquement après vérification des crédits et tarifs du modèle dans le compte NVIDIA : les conditions varient selon le modèle et le compte. Les quotas RPM/RPD locaux sont des garde-fous d'usage, pas une garantie contre la facturation fournisseur. Les appels Anthropic/OpenAI restent désactivés par défaut : pour les autoriser explicitement, définir `MAX_MONTHLY_SPEND_USD` à une valeur positive. Sur Render gratuit, le suivi local du budget peut être réinitialisé au redémarrage : ne pas considérer ce plafond comme une garantie de facturation fournisseur.
 
 ## Lancer
 
