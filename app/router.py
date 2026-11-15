@@ -16,7 +16,7 @@ import httpx
 import os
 import time
 
-from app.config import MODELS, ModelConfig, PROVIDERS
+from app.config import MODELS, ModelConfig, PROVIDERS, PROVIDER_ORDER, MODEL_SELECTION_MODE
 from app.providers.client import call_model, ProviderError
 from app.quota import can_use, record_call
 from app.local_classifier import classify_local
@@ -36,6 +36,10 @@ from app.model_discovery import (
 # Chaque appel reçoit uniquement le temps restant : un fournisseur lent ne peut
 # donc pas faire dépasser le délai global avant le passage au message de secours.
 DELAI_MAX_CASCADE = 28  # secondes
+# Une tentative lente ne doit pas monopoliser toute la cascade : on garde
+# du temps pour essayer les autres providers gratuits.
+DELAI_MAX_PAR_TENTATIVE = 6  # secondes
+DELAI_MAX_PAR_PROVIDER = 8  # secondes cumulées par fournisseur
 
 
 def _est_rate_limit(e: ProviderError) -> bool:
@@ -113,7 +117,7 @@ async def _try_forced_model(
     try:
         content, usage = await asyncio.wait_for(
             call_model(provider, model_id, prompt),
-            timeout=max(0.001, timeout_seconds),
+            timeout=max(0.001, min(timeout_seconds, DELAI_MAX_PAR_TENTATIVE)),
         )
         record_call(provider, tokens=usage["input_tokens"] + usage["output_tokens"])
         signaler_succes(provider, model_id)
@@ -152,12 +156,16 @@ async def pick_and_call(
     estimated_total = estimated_input + 500
 
     debut = time.monotonic()
+    provider_elapsed: dict[str, float] = {}
     if forced_provider and forced_model_id:
         remaining = DELAI_MAX_CASCADE - (time.monotonic() - debut)
+        forced_started = time.monotonic()
         if remaining > 0:
             forced_result = await _try_forced_model(
-                prompt, forced_provider, forced_model_id, estimated_total, remaining
+                prompt, forced_provider, forced_model_id, estimated_total,
+                min(remaining, DELAI_MAX_PAR_PROVIDER),
             )
+            provider_elapsed[forced_provider] = time.monotonic() - forced_started
             if forced_result is not None:
                 return forced_result
 
@@ -169,6 +177,14 @@ async def pick_and_call(
     if category != "general":
         candidate_lists.append(_candidates_for("general", mode))
 
+    logger.info(
+        "[Routage] catégorie=%s mode=%s ordre_providers=%s candidats=%s",
+        category,
+        mode or MODEL_SELECTION_MODE,
+        PROVIDER_ORDER,
+        [[f"{m.provider}/{m.model_id}" for m in group] for group in candidate_lists],
+    )
+
     for candidates in candidate_lists:
         for m in candidates:
             if not PROVIDERS[m.provider].is_free:
@@ -177,14 +193,20 @@ async def pick_and_call(
             if key in tried:
                 continue
             tried.add(key)
+            provider_remaining = DELAI_MAX_PAR_PROVIDER - provider_elapsed.get(m.provider, 0.0)
+            if provider_remaining <= 0:
+                logger.info("[Routage] budget temps fournisseur épuisé: %s", m.provider)
+                continue
             if not can_use(m.provider, estimated_tokens=estimated_total):
                 logger.info("Quota local insuffisant pour %s/%s, on saute", m.provider, m.model_id)
                 continue
             if est_sur_liste_noire(m.provider, m.model_id):
+                logger.info("[Routage] modèle ignoré (liste noire): %s/%s", m.provider, m.model_id)
                 continue
             # Provider mis en pause par un 429 : inutile d'essayer ses autres
             # modèles, c'est le compte entier qui est plafonné.
             if provider_en_pause(m.provider):
+                logger.info("[Routage] provider ignoré (en pause): %s", m.provider)
                 continue
             if time.monotonic() - debut > DELAI_MAX_CASCADE:
                 logger.warning("Cascade interrompue après %ss, on rend la main", DELAI_MAX_CASCADE)
@@ -192,6 +214,7 @@ async def pick_and_call(
                     "Aucun modèle gratuit n'a répondu à temps. Les providers sont saturés, "
                     "réessaie dans quelques minutes."
                 )
+            tentative_started = time.monotonic()
             try:
                 remaining = DELAI_MAX_CASCADE - (time.monotonic() - debut)
                 if remaining <= 0:
@@ -200,7 +223,7 @@ async def pick_and_call(
                     )
                 content, usage = await asyncio.wait_for(
                     call_model(m.provider, m.model_id, prompt),
-                    timeout=remaining,
+                    timeout=min(remaining, provider_remaining, DELAI_MAX_PAR_TENTATIVE),
                 )
                 record_call(m.provider, tokens=usage["input_tokens"] + usage["output_tokens"])
                 signaler_succes(m.provider, m.model_id)
@@ -229,6 +252,10 @@ async def pick_and_call(
                     pass
                 logger.warning("Echec %s/%s: %s", m.provider, m.model_id, e)
                 continue
+            finally:
+                provider_elapsed[m.provider] = provider_elapsed.get(m.provider, 0.0) + (
+                    time.monotonic() - tentative_started
+                )
 
     raise NoModelAvailable(
         "Tous les providers gratuits sont soit à quota épuisé, soit en erreur. Réessaie dans une minute."
