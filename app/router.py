@@ -11,6 +11,7 @@ config.py et ceux repérés en direct chez les providers, triés par note de
 qualité. Un modèle qui plante 3 fois de suite est écarté 6 h automatiquement.
 """
 import logging
+import httpx
 import os
 import time
 
@@ -26,6 +27,7 @@ from app.model_discovery import (
     provider_en_pause,
     signaler_echec,
     signaler_rate_limit,
+    signaler_provider_pause,
     signaler_succes,
 )
 
@@ -38,7 +40,7 @@ DELAI_MAX_CASCADE = 45  # secondes
 def _est_rate_limit(e: ProviderError) -> bool:
     """Détecte quota, crédit ou accès payant : on met le compte en pause."""
     code = getattr(e, "status_code", None)
-    if code in (402, 403, 429):
+    if code == 429:
         return True
     texte = str(getattr(e, "detail", "") or e).lower()
     indicateurs = (
@@ -111,9 +113,13 @@ async def _try_forced_model(
         record_call(provider, tokens=usage["input_tokens"] + usage["output_tokens"])
         signaler_succes(provider, model_id)
         return provider, model_id, content
-    except (ProviderError, RuntimeError) as e:
+    except (ProviderError, RuntimeError, httpx.HTTPError) as e:
         if isinstance(e, ProviderError) and _est_rate_limit(e):
             signaler_rate_limit(provider, str(getattr(e, "detail", "")))
+        elif isinstance(e, ProviderError) and e.status_code in (401, 403):
+            signaler_provider_pause(provider, 1800, str(getattr(e, "detail", "")))
+        elif isinstance(e, ProviderError) and e.status_code in (400, 404, 422):
+            signaler_echec(provider, model_id, immediat=True)
         else:
             signaler_echec(provider, model_id)
         logger.warning("Echec du modèle forcé %s/%s: %s, bascule sur la cascade normale", provider, model_id, e)
@@ -181,13 +187,21 @@ async def pick_and_call(
                 content, usage = await call_model(m.provider, m.model_id, prompt)
                 record_call(m.provider, tokens=usage["input_tokens"] + usage["output_tokens"])
                 signaler_succes(m.provider, m.model_id)
+                logger.info("Succès %s/%s en %.2fs", m.provider, m.model_id, time.monotonic() - debut)
                 return m.provider, m.model_id, content
-            except (ProviderError, RuntimeError) as e:
+            except (ProviderError, RuntimeError, httpx.HTTPError) as e:
                 if isinstance(e, ProviderError) and _est_rate_limit(e):
                     # Tout le provider est plafonné : on le met en pause, la
                     # boucle sautera ses autres modèles dès le tour suivant.
                     signaler_rate_limit(m.provider, str(getattr(e, "detail", "")))
+                elif isinstance(e, ProviderError) and e.status_code in (401, 403):
+                    signaler_provider_pause(m.provider, 1800, str(getattr(e, "detail", "")))
+                elif isinstance(e, ProviderError) and e.status_code in (400, 404, 422):
+                    # Un identifiant rejeté ne doit pas être retenté à chaque élève.
+                    signaler_echec(m.provider, m.model_id, immediat=True)
                 else:
+                    # Les erreurs réseau/serveur restent temporaires : 3 échecs
+                    # consécutifs suffisent avant une mise à l'écart de 6 h.
                     signaler_echec(m.provider, m.model_id)
                 # On compte quand même l'appel : un 429 consomme du quota chez
                 # la plupart des providers, et sans ça le compteur local ne
