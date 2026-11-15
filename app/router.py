@@ -40,7 +40,7 @@ DELAI_MAX_CASCADE = 45  # secondes
 def _est_rate_limit(e: ProviderError) -> bool:
     """Détecte quota, crédit ou accès payant : on met le compte en pause."""
     code = getattr(e, "status_code", None)
-    if code == 429:
+    if code in (402, 429):
         return True
     texte = str(getattr(e, "detail", "") or e).lower()
     indicateurs = (
