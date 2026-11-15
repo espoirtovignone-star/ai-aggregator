@@ -89,7 +89,8 @@ def _modele_connu(provider: str, model_id: str) -> bool:
 
 
 async def _try_forced_model(
-    prompt: str, provider: str, model_id: str, estimated_total: int
+    prompt: str, provider: str, model_id: str, estimated_total: int,
+    timeout_seconds: float,
 ) -> tuple[str, str, str] | None:
     """
     Essaie le modèle gratuit demandé explicitement par l'utilisateur.
@@ -110,7 +111,10 @@ async def _try_forced_model(
         logger.info("Quota épuisé pour le modèle forcé %s/%s, bascule sur la cascade normale", provider, model_id)
         return None
     try:
-        content, usage = await call_model(provider, model_id, prompt)
+        content, usage = await asyncio.wait_for(
+            call_model(provider, model_id, prompt),
+            timeout=max(0.001, timeout_seconds),
+        )
         record_call(provider, tokens=usage["input_tokens"] + usage["output_tokens"])
         signaler_succes(provider, model_id)
         return provider, model_id, content
@@ -147,13 +151,17 @@ async def pick_and_call(
     estimated_input = len(prompt) // 4
     estimated_total = estimated_input + 500
 
+    debut = time.monotonic()
     if forced_provider and forced_model_id:
-        forced_result = await _try_forced_model(prompt, forced_provider, forced_model_id, estimated_total)
-        if forced_result is not None:
-            return forced_result
+        remaining = DELAI_MAX_CASCADE - (time.monotonic() - debut)
+        if remaining > 0:
+            forced_result = await _try_forced_model(
+                prompt, forced_provider, forced_model_id, estimated_total, remaining
+            )
+            if forced_result is not None:
+                return forced_result
 
     tried = set()
-    debut = time.monotonic()
     if forced_provider and forced_model_id:
         tried.add((forced_provider, forced_model_id))
 
