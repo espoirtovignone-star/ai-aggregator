@@ -36,6 +36,9 @@ from app.model_discovery import (
 # Chaque appel reçoit uniquement le temps restant : un fournisseur lent ne peut
 # donc pas faire dépasser le délai global avant le passage au message de secours.
 DELAI_MAX_CASCADE = 28  # secondes
+# Une tentative lente ne doit pas monopoliser toute la cascade : on garde
+# du temps pour essayer les autres providers gratuits.
+DELAI_MAX_PAR_TENTATIVE = 8  # secondes
 
 
 def _est_rate_limit(e: ProviderError) -> bool:
@@ -113,7 +116,7 @@ async def _try_forced_model(
     try:
         content, usage = await asyncio.wait_for(
             call_model(provider, model_id, prompt),
-            timeout=max(0.001, timeout_seconds),
+            timeout=max(0.001, min(timeout_seconds, DELAI_MAX_PAR_TENTATIVE)),
         )
         record_call(provider, tokens=usage["input_tokens"] + usage["output_tokens"])
         signaler_succes(provider, model_id)
@@ -200,7 +203,7 @@ async def pick_and_call(
                     )
                 content, usage = await asyncio.wait_for(
                     call_model(m.provider, m.model_id, prompt),
-                    timeout=remaining,
+                    timeout=min(remaining, DELAI_MAX_PAR_TENTATIVE),
                 )
                 record_call(m.provider, tokens=usage["input_tokens"] + usage["output_tokens"])
                 signaler_succes(m.provider, m.model_id)
