@@ -62,6 +62,39 @@ class CascadeDeadlineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, ("groq", "fast", "answer"))
         self.assertEqual(calls, ["slow", "fast"])
 
+    async def test_provider_time_budget_moves_to_next_provider(self):
+        candidates = [
+            SimpleNamespace(provider="openrouter", model_id="slow-1"),
+            SimpleNamespace(provider="openrouter", model_id="slow-2"),
+            SimpleNamespace(provider="groq", model_id="fast"),
+        ]
+        calls = []
+
+        async def call_model(provider, model_id, prompt):
+            calls.append(model_id)
+            if model_id.startswith("slow"):
+                await asyncio.sleep(1)
+                return "late", {"input_tokens": 1, "output_tokens": 1}
+            return "answer", {"input_tokens": 2, "output_tokens": 3}
+
+        with (
+            patch.object(router, "DELAI_MAX_CASCADE", 0.5),
+            patch.object(router, "DELAI_MAX_PAR_PROVIDER", 0.08),
+            patch.object(router, "DELAI_MAX_PAR_TENTATIVE", 0.05),
+            patch.object(router, "_candidates_for", return_value=candidates),
+            patch.object(router, "can_use", return_value=True),
+            patch.object(router, "est_sur_liste_noire", return_value=False),
+            patch.object(router, "provider_en_pause", return_value=False),
+            patch.object(router, "call_model", side_effect=call_model),
+            patch.object(router, "record_call"),
+            patch.object(router, "signaler_echec"),
+            patch.object(router, "signaler_succes"),
+        ):
+            result = await router.pick_and_call("test", "general")
+
+        self.assertEqual(result, ("groq", "fast", "answer"))
+        self.assertEqual(calls, ["slow-1", "slow-2", "fast"])
+
     async def test_provider_error_falls_through_to_next_free_candidate(self):
         candidates = [
             SimpleNamespace(provider="groq", model_id="first"),
