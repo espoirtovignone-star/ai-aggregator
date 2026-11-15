@@ -113,7 +113,7 @@ async def _try_forced_model(
         record_call(provider, tokens=usage["input_tokens"] + usage["output_tokens"])
         signaler_succes(provider, model_id)
         return provider, model_id, content
-    except (ProviderError, RuntimeError, httpx.HTTPError) as e:
+    except (ProviderError, RuntimeError, httpx.HTTPError, TimeoutError) as e:
         if isinstance(e, ProviderError) and _est_rate_limit(e):
             signaler_rate_limit(provider, str(getattr(e, "detail", "")))
         elif isinstance(e, ProviderError) and e.status_code in (401, 403):
@@ -189,7 +189,7 @@ async def pick_and_call(
                 signaler_succes(m.provider, m.model_id)
                 logger.info("Succès %s/%s en %.2fs", m.provider, m.model_id, time.monotonic() - debut)
                 return m.provider, m.model_id, content
-            except (ProviderError, RuntimeError, httpx.HTTPError) as e:
+            except (ProviderError, RuntimeError, httpx.HTTPError, TimeoutError) as e:
                 if isinstance(e, ProviderError) and _est_rate_limit(e):
                     # Tout le provider est plafonné : on le met en pause, la
                     # boucle sautera ses autres modèles dès le tour suivant.
