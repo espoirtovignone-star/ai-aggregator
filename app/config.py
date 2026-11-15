@@ -80,16 +80,7 @@ PROVIDERS: dict[str, ProviderConfig] = {
         # Appels explicites uniquement, désactivés par défaut.
         is_free=False,
     ),
-    # Les deux fournisseurs conditionnels ne sont considérés gratuits que si le
-# propriétaire confirme le plan sans facturation. Les flags sont volontairement
-# désactivés par défaut : aucune requête ne peut déclencher de frais par défaut.
-def _env_true(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "oui")
-
-PROVIDERS["cloudflare"].is_free = _env_true("CLOUDFLARE_FREE_TIER_CONFIRMED")
-PROVIDERS["sambanova"].is_free = _env_true("SAMBANOVA_FREE_TIER_CONFIRMED")
-
-# --- Providers payants, jamais choisis automatiquement (voir router.py) ---
+    # --- Providers payants, jamais choisis automatiquement (voir router.py) ---
     "anthropic": ProviderConfig(
         name="anthropic",
         base_url="https://api.anthropic.com/v1",
@@ -109,6 +100,15 @@ PROVIDERS["sambanova"].is_free = _env_true("SAMBANOVA_FREE_TIER_CONFIRMED")
         price_per_mtok=(2.50, 10.00),  # à ajuster selon le modèle exact utilisé
     ),
 }
+
+
+# Les fournisseurs conditionnels ne sont considérés gratuits qu'après confirmation
+# explicite du forfait sans facturation. Désactivés par défaut.
+def _env_true(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "oui")
+
+PROVIDERS["cloudflare"].is_free = _env_true("CLOUDFLARE_FREE_TIER_CONFIRMED")
+PROVIDERS["sambanova"].is_free = _env_true("SAMBANOVA_FREE_TIER_CONFIRMED")
 
 
 @dataclass
