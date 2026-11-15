@@ -171,7 +171,7 @@ MODELS: list[ModelConfig] = [
     # Cloudflare Workers AI et SambaNova : quotas locaux prudents (pas des plafonds
     # contractuels fournisseur). Les modèles sont épinglés pour éviter une découverte
     # de catalogue non vérifiée.
-    ModelConfig("cloudflare", "@cf/meta/llama-3.1-8b-instruct-fp8-fast", ["classification", "rapide", "general"], priority=3),
+    ModelConfig("cloudflare", "@cf/meta/llama-3.1-8b-instruct-fast", ["classification", "rapide", "general"], priority=3),
     ModelConfig("sambanova", "Meta-Llama-3.3-70B-Instruct", ["raisonnement", "redaction", "creatif", "general"], priority=3),
     ModelConfig("sambanova", "DeepSeek-V3.1", ["raisonnement", "general"], priority=5),
     ModelConfig("sambanova", "gpt-oss-120b", ["raisonnement", "code", "general"], priority=6),
