@@ -29,7 +29,7 @@ class ProviderEndpointTests(unittest.TestCase):
 
     def test_curated_models_exist_for_both_providers(self):
         models = {(model.provider, model.model_id) for model in MODELS}
-        self.assertIn(("cloudflare", "@cf/meta/llama-3.1-8b-instruct-fp8-fast"), models)
+        self.assertIn(("cloudflare", "@cf/meta/llama-3.1-8b-instruct-fast"), models)
         self.assertIn(("sambanova", "Meta-Llama-3.3-70B-Instruct"), models)
 
     def test_sambanova_endpoint(self):
