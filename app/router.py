@@ -16,7 +16,7 @@ import httpx
 import os
 import time
 
-from app.config import MODELS, ModelConfig, PROVIDERS
+from app.config import MODELS, ModelConfig, PROVIDERS, PROVIDER_ORDER, MODEL_SELECTION_MODE
 from app.providers.client import call_model, ProviderError
 from app.quota import can_use, record_call
 from app.local_classifier import classify_local
@@ -169,6 +169,14 @@ async def pick_and_call(
     if category != "general":
         candidate_lists.append(_candidates_for("general", mode))
 
+    logger.info(
+        "[Routage] catégorie=%s mode=%s ordre_providers=%s candidats=%s",
+        category,
+        mode or MODEL_SELECTION_MODE,
+        PROVIDER_ORDER,
+        [[f"{m.provider}/{m.model_id}" for m in group] for group in candidate_lists],
+    )
+
     for candidates in candidate_lists:
         for m in candidates:
             if not PROVIDERS[m.provider].is_free:
@@ -181,10 +189,12 @@ async def pick_and_call(
                 logger.info("Quota local insuffisant pour %s/%s, on saute", m.provider, m.model_id)
                 continue
             if est_sur_liste_noire(m.provider, m.model_id):
+                logger.info("[Routage] modèle ignoré (liste noire): %s/%s", m.provider, m.model_id)
                 continue
             # Provider mis en pause par un 429 : inutile d'essayer ses autres
             # modèles, c'est le compte entier qui est plafonné.
             if provider_en_pause(m.provider):
+                logger.info("[Routage] provider ignoré (en pause): %s", m.provider)
                 continue
             if time.monotonic() - debut > DELAI_MAX_CASCADE:
                 logger.warning("Cascade interrompue après %ss, on rend la main", DELAI_MAX_CASCADE)
