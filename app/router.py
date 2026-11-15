@@ -10,7 +10,9 @@ candidats n'est plus figée : elle mélange les modèles écrits à la main dans
 config.py et ceux repérés en direct chez les providers, triés par note de
 qualité. Un modèle qui plante 3 fois de suite est écarté 6 h automatiquement.
 """
+import asyncio
 import logging
+import httpx
 import os
 import time
 
@@ -26,19 +28,20 @@ from app.model_discovery import (
     provider_en_pause,
     signaler_echec,
     signaler_rate_limit,
+    signaler_provider_pause,
     signaler_succes,
 )
 
-# Au-delà de ce délai, on arrête d'essayer des modèles et on rend la main :
-# le navigateur attend en face, mieux vaut une erreur claire à 45 s qu'une page
-# qui tourne pendant deux minutes parce que dix modèles échouent l'un après l'autre.
-DELAI_MAX_CASCADE = 45  # secondes
+# Budget total de la cascade, compatible avec le délai d'attente de Kofi.
+# Chaque appel reçoit uniquement le temps restant : un fournisseur lent ne peut
+# donc pas faire dépasser le délai global avant le passage au message de secours.
+DELAI_MAX_CASCADE = 28  # secondes
 
 
 def _est_rate_limit(e: ProviderError) -> bool:
     """Détecte quota, crédit ou accès payant : on met le compte en pause."""
     code = getattr(e, "status_code", None)
-    if code in (402, 403, 429):
+    if code in (402, 429):
         return True
     texte = str(getattr(e, "detail", "") or e).lower()
     indicateurs = (
@@ -86,7 +89,8 @@ def _modele_connu(provider: str, model_id: str) -> bool:
 
 
 async def _try_forced_model(
-    prompt: str, provider: str, model_id: str, estimated_total: int
+    prompt: str, provider: str, model_id: str, estimated_total: int,
+    timeout_seconds: float,
 ) -> tuple[str, str, str] | None:
     """
     Essaie le modèle gratuit demandé explicitement par l'utilisateur.
@@ -107,13 +111,20 @@ async def _try_forced_model(
         logger.info("Quota épuisé pour le modèle forcé %s/%s, bascule sur la cascade normale", provider, model_id)
         return None
     try:
-        content, usage = await call_model(provider, model_id, prompt)
+        content, usage = await asyncio.wait_for(
+            call_model(provider, model_id, prompt),
+            timeout=max(0.001, timeout_seconds),
+        )
         record_call(provider, tokens=usage["input_tokens"] + usage["output_tokens"])
         signaler_succes(provider, model_id)
         return provider, model_id, content
-    except (ProviderError, RuntimeError) as e:
+    except (ProviderError, RuntimeError, httpx.HTTPError, TimeoutError) as e:
         if isinstance(e, ProviderError) and _est_rate_limit(e):
             signaler_rate_limit(provider, str(getattr(e, "detail", "")))
+        elif isinstance(e, ProviderError) and e.status_code in (401, 403):
+            signaler_provider_pause(provider, 1800, str(getattr(e, "detail", "")))
+        elif isinstance(e, ProviderError) and e.status_code in (400, 404, 422):
+            signaler_echec(provider, model_id, immediat=True)
         else:
             signaler_echec(provider, model_id)
         logger.warning("Echec du modèle forcé %s/%s: %s, bascule sur la cascade normale", provider, model_id, e)
@@ -140,13 +151,17 @@ async def pick_and_call(
     estimated_input = len(prompt) // 4
     estimated_total = estimated_input + 500
 
+    debut = time.monotonic()
     if forced_provider and forced_model_id:
-        forced_result = await _try_forced_model(prompt, forced_provider, forced_model_id, estimated_total)
-        if forced_result is not None:
-            return forced_result
+        remaining = DELAI_MAX_CASCADE - (time.monotonic() - debut)
+        if remaining > 0:
+            forced_result = await _try_forced_model(
+                prompt, forced_provider, forced_model_id, estimated_total, remaining
+            )
+            if forced_result is not None:
+                return forced_result
 
     tried = set()
-    debut = time.monotonic()
     if forced_provider and forced_model_id:
         tried.add((forced_provider, forced_model_id))
 
@@ -178,16 +193,32 @@ async def pick_and_call(
                     "réessaie dans quelques minutes."
                 )
             try:
-                content, usage = await call_model(m.provider, m.model_id, prompt)
+                remaining = DELAI_MAX_CASCADE - (time.monotonic() - debut)
+                if remaining <= 0:
+                    raise NoModelAvailable(
+                        "Le délai global de la cascade gratuite est écoulé. Réessaie dans quelques instants."
+                    )
+                content, usage = await asyncio.wait_for(
+                    call_model(m.provider, m.model_id, prompt),
+                    timeout=remaining,
+                )
                 record_call(m.provider, tokens=usage["input_tokens"] + usage["output_tokens"])
                 signaler_succes(m.provider, m.model_id)
+                logger.info("Succès %s/%s en %.2fs", m.provider, m.model_id, time.monotonic() - debut)
                 return m.provider, m.model_id, content
-            except (ProviderError, RuntimeError) as e:
+            except (ProviderError, RuntimeError, httpx.HTTPError, TimeoutError) as e:
                 if isinstance(e, ProviderError) and _est_rate_limit(e):
                     # Tout le provider est plafonné : on le met en pause, la
                     # boucle sautera ses autres modèles dès le tour suivant.
                     signaler_rate_limit(m.provider, str(getattr(e, "detail", "")))
+                elif isinstance(e, ProviderError) and e.status_code in (401, 403):
+                    signaler_provider_pause(m.provider, 1800, str(getattr(e, "detail", "")))
+                elif isinstance(e, ProviderError) and e.status_code in (400, 404, 422):
+                    # Un identifiant rejeté ne doit pas être retenté à chaque élève.
+                    signaler_echec(m.provider, m.model_id, immediat=True)
                 else:
+                    # Les erreurs réseau/serveur restent temporaires : 3 échecs
+                    # consécutifs suffisent avant une mise à l'écart de 6 h.
                     signaler_echec(m.provider, m.model_id)
                 # On compte quand même l'appel : un 429 consomme du quota chez
                 # la plupart des providers, et sans ça le compteur local ne

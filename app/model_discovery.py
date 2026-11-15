@@ -427,14 +427,24 @@ def providers_en_pause() -> dict:
     }
 
 
-def signaler_echec(provider: str, model_id: str) -> None:
+def signaler_provider_pause(provider: str, duree: int = 1800, raison: str = "") -> int:
+    """Met temporairement un provider en pause après une erreur de compte ou d'accès."""
+    cache = _charger_cache()
+    fin = time.time() + max(60, int(duree))
+    cache.setdefault("pauses", {})[provider] = fin
+    _sauver_cache()
+    logger.warning("[Provider] %s en pause %s min (%s)", provider, int(duree) // 60, (raison or "")[:120])
+    return int(duree)
+
+
+def signaler_echec(provider: str, model_id: str, immediat: bool = False) -> None:
     """Appelé par le router quand un modèle plante : 3 fois de suite = mise à l'écart 6 h."""
     cache = _charger_cache()
     cle = f"{provider}/{model_id}"
     entree = cache["echecs"].get(cle, {"n": 0, "t": 0})
     if time.time() - entree.get("t", 0) > DUREE_LISTE_NOIRE:
         entree = {"n": 0, "t": 0}
-    entree["n"] += 1
+    entree["n"] = SEUIL_LISTE_NOIRE if immediat else entree["n"] + 1
     entree["t"] = time.time()
     cache["echecs"][cle] = entree
     _sauver_cache()

@@ -130,9 +130,7 @@ MODELS: list[ModelConfig] = [
 
     # Code
     ModelConfig("groq", "qwen/qwen3-32b", ["code"], priority=1),
-    ModelConfig("openrouter", "qwen/qwen3-coder:free", ["code"], priority=2),
     ModelConfig("groq", "llama-3.3-70b-versatile", ["code"], priority=3),
-    ModelConfig("openrouter", "openai/gpt-oss-120b:free", ["code"], priority=4),
     ModelConfig("openrouter", "cohere/north-mini-code:free", ["code"], priority=5),
 
     # Raisonnement / analyse complexe

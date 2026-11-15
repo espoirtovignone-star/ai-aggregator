@@ -54,8 +54,11 @@ class ProviderEndpointTests(unittest.TestCase):
     def test_billing_and_quota_errors_trigger_provider_fallback(self):
         from app.router import _est_rate_limit
         from app.providers.client import ProviderError
-        for status in (402, 403, 429):
+        for status in (402, 429):
             self.assertTrue(_est_rate_limit(ProviderError("cloudflare", status, "denied")))
+        # HTTP 403 is handled separately as an authentication/permission pause,
+        # not mislabeled as an exhausted quota.
+        self.assertFalse(_est_rate_limit(ProviderError("cloudflare", 403, "denied")))
         self.assertTrue(_est_rate_limit(ProviderError("sambanova", 400, "insufficient credits")))
 
     def test_metered_providers_are_excluded_from_automatic_candidates(self):

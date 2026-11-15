@@ -3,13 +3,15 @@ Client unifié : Groq, Gemini et OpenRouter parlent tous le protocole
 OpenAI-compatible (/chat/completions). Un seul client suffit, on change
 juste base_url + api_key + model selon le provider choisi par le router.
 """
+import asyncio
 import os
 
 import httpx
 
 from app.config import PROVIDERS, get_api_key
 
-TIMEOUT = httpx.Timeout(60.0, connect=10.0)
+TIMEOUT = httpx.Timeout(18.0, connect=5.0)
+TOTAL_REQUEST_TIMEOUT_SECONDS = 18.0
 
 
 def chat_completions_url(provider: str) -> str:
@@ -54,7 +56,8 @@ async def call_model(
         payload["max_tokens"] = 4096
 
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        resp = await client.post(url, headers=headers, json=payload)
+        async with asyncio.timeout(TOTAL_REQUEST_TIMEOUT_SECONDS):
+            resp = await client.post(url, headers=headers, json=payload)
 
     if resp.status_code != 200:
         raise ProviderError(provider, resp.status_code, resp.text[:500])
