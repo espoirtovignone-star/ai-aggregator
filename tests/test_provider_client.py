@@ -130,7 +130,7 @@ class ProviderResponseValidationTests(unittest.IsolatedAsyncioTestCase):
     async def test_multiblock_text_content_is_joined(self):
         body = b'{"choices":[{"message":{"content":[{"type":"text","text":"Partie 1"},{"type":"text","text":"Partie 2"}]}}]}'
         result = await self._call_with_response(body)
-        self.assertEqual(result[0], "Partie 1\\nPartie 2")
+        self.assertEqual(result[0], "Partie 1\nPartie 2")
 
     async def test_http_error_body_is_never_exposed(self):
         with self.assertRaises(ProviderError) as raised:
