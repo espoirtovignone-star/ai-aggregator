@@ -8,6 +8,18 @@ La cascade isole maintenant aussi les pannes au niveau du fournisseur, pas seule
 
 Cela réduit les pannes en cascade, mais ne peut pas garantir une réponse si tous les fournisseurs gratuits sont simultanément indisponibles, si les clés sont invalides ou si leurs quotas sont épuisés. Aucun fournisseur payant n'est activé automatiquement.
 
+## Modèles et basculement automatique
+
+- Groq : la liste automatique est limitée à `openai/gpt-oss-20b`, `openai/gpt-oss-120b` et `qwen/qwen3.8-27b`. Les anciens identifiants Llama 3.1, Llama 3.3, Qwen 3 32B et Compound ont été retirés par Groq en 2026.
+- Gemini : la découverte automatique conserve uniquement les modèles dont la tarification officielle indique un accès Free Tier (`gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-2.5-pro`).
+- OpenRouter : seuls les modèles dont les prix d'entrée et de sortie sont tous deux à zéro sont retenus.
+- Le catalogue des modèles est rafraîchi toutes les 6 heures par défaut. Un catalogue disponible remplace les identifiants obsolètes de la liste locale.
+- Une erreur 401/403 ou une configuration manquante écarte le fournisseur pendant 30 minutes. Deux erreurs réseau/serveur consécutives ouvrent un coupe-circuit progressif. Les erreurs 429 respectent `Retry-After` quand le fournisseur le transmet.
+- Une réponse vide, mal formée ou non JSON est considérée comme un échec et déclenche le passage au moteur suivant.
+- `GET /status` expose les clés présentes (booléens uniquement, jamais leur contenu), les moteurs activés, les pauses et l'âge du catalogue.
+
+Les quotas locaux sont des garde-fous conservateurs, pas des engagements contractuels. Les limites réelles dépendent du compte, du modèle et du fournisseur ; une clé API et un compte autorisé restent nécessaires.
+
 ## Setup
 
 ```bash
