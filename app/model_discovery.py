@@ -564,6 +564,14 @@ def candidats(category: str, mode: str | None = None) -> list[ModelConfig]:
     de la vitesse, pas de la puissance.
     """
     mode = mode or MODEL_SELECTION_MODE
+    cache = _charger_cache()
+    catalogue_par_provider: dict[str, set[str]] = {}
+    for entree in cache.get("modeles", []):
+        provider = entree.get("provider")
+        model_id = entree.get("model_id")
+        if provider in PROVIDERS and model_id:
+            catalogue_par_provider.setdefault(provider, set()).add(model_id)
+
     tous = list(MODELS)
     vus = {(m.provider, m.model_id) for m in tous}
     for m in modeles_decouverts():
@@ -572,9 +580,19 @@ def candidats(category: str, mode: str | None = None) -> list[ModelConfig]:
             vus.add((m.provider, m.model_id))
 
     def utilisable(m, cat):
+        # Dès qu'un catalogue récent existe pour un fournisseur, il fait foi :
+        # les entrées figées absentes du catalogue sont obsolètes (ex. modèle
+        # Groq retiré ou modèle OpenRouter qui n'est plus gratuit). On ne les
+        # réessaie pas simplement parce qu'elles restent dans MODELS.
+        catalogue_connu = m.provider in catalogue_par_provider
+        modele_actif = (
+            not catalogue_connu
+            or m.model_id in catalogue_par_provider[m.provider]
+        )
         return (
             cat in m.categories
             and PROVIDERS[m.provider].is_free
+            and modele_actif
             and not est_sur_liste_noire(m.provider, m.model_id)
         )
 
