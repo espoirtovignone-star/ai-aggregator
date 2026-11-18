@@ -29,6 +29,7 @@ from app.model_discovery import (
     signaler_echec,
     signaler_rate_limit,
     signaler_provider_pause,
+    signaler_provider_echec,
     signaler_succes,
 )
 
@@ -131,6 +132,8 @@ async def _try_forced_model(
             signaler_echec(provider, model_id, immediat=True)
         else:
             signaler_echec(provider, model_id)
+            if not isinstance(e, ProviderError) or e.status_code in (408, 425) or e.status_code >= 500:
+                signaler_provider_echec(provider, str(e))
         logger.warning("Echec du modèle forcé %s/%s: %s, bascule sur la cascade normale", provider, model_id, e)
         return None
 
@@ -265,9 +268,12 @@ async def pick_and_call(
                     # Un identifiant rejeté ne doit pas être retenté à chaque élève.
                     signaler_echec(m.provider, m.model_id, immediat=True)
                 else:
-                    # Les erreurs réseau/serveur restent temporaires : 3 échecs
-                    # consécutifs suffisent avant une mise à l'écart de 6 h.
+                    # Les erreurs réseau/serveur déclenchent aussi un circuit
+                    # au niveau fournisseur : changer de modèle ne contourne
+                    # pas une API amont qui est indisponible.
                     signaler_echec(m.provider, m.model_id)
+                    if not isinstance(e, ProviderError) or e.status_code in (408, 425) or e.status_code >= 500:
+                        signaler_provider_echec(m.provider, str(e))
                 # On compte quand même l'appel : un 429 consomme du quota chez
                 # la plupart des providers, et sans ça le compteur local ne
                 # voyait jamais qu'on était à sec.
