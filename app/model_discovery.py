@@ -356,6 +356,7 @@ def _charger_cache() -> dict:
     _cache.setdefault("modeles", [])
     _cache.setdefault("maj", 0)
     _cache.setdefault("pauses", {})
+    _cache.setdefault("pannes_provider", {})
     return _cache
 
 
