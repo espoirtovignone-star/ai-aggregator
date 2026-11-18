@@ -73,6 +73,19 @@ class ProviderCircuitBreakerTests(unittest.TestCase):
             "qwen/qwen3.8-27b",
         })
 
+    def test_rate_limit_pause_uses_retry_after_header_value(self):
+        self.assertEqual(
+            discovery.signaler_rate_limit("gemini", "rate limit", retry_after_seconds=75),
+            75,
+        )
+        self.assertTrue(discovery.provider_en_pause("gemini"))
+
+    def test_rate_limit_retry_after_is_clamped(self):
+        self.assertEqual(
+            discovery.signaler_rate_limit("openrouter", "rate limit", retry_after_seconds=999999),
+            24 * 3600,
+        )
+
     def test_gemini_allowlist_excludes_paid_and_preview_models(self):
         self.assertEqual(discovery._GEMINI_FREE_MODELS, {
             "gemini-2.5-flash",
