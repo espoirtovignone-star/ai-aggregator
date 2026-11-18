@@ -141,6 +141,19 @@ class DurableKofiQueue:
         )
         return data if data in ("retrying", "failed") else None
 
+    async def cleanup(self, retention_days: int = 14, limit: int = 1000) -> int:
+        if not 1 <= retention_days <= 90:
+            raise ValueError("retention_days doit être compris entre 1 et 90.")
+        if not 1 <= limit <= 10_000:
+            raise ValueError("limit doit être compris entre 1 et 10000.")
+        data = await self._rpc(
+            "cleanup_kofi_queue",
+            {"p_retention_days": retention_days, "p_limit": limit},
+        )
+        if not isinstance(data, int) or data < 0:
+            raise QueueUnavailable("Résultat de nettoyage de file invalide.")
+        return data
+
     async def reserve_provider_quota(
         self,
         provider: str,
