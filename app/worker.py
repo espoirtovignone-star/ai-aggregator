@@ -7,6 +7,8 @@ import os
 import socket
 from typing import Any
 
+from app.math_verifier import verify_math_answer
+
 from app.durable_queue import (
     DurableKofiQueue,
     QueueConfigurationError,
@@ -61,6 +63,26 @@ async def process_job(queue: DurableKofiQueue, job: dict[str, Any]) -> None:
         provider, model_id, answer = await pick_and_call(
             prompt, category, quota_queue=queue
         )
+        if payload.get("verify_math") is True:
+            findings = verify_math_answer(answer)
+            if findings:
+                correction_prompt = (
+                    f"{prompt}\n\n# CORRECTION MATHÉMATIQUE OBLIGATOIRE\n"
+                    "Le contrôle indépendant a relevé les points suivants :\n"
+                    + "\n".join(f"- {finding}" for finding in findings)
+                    + "\nReprends l'exercice depuis l'énoncé original. Corrige chaque erreur confirmée, "
+                    "vérifie les calculs et fournis la solution finale complète.\n\n"
+                    f"BROUILLON À CONTRÔLER :\n{answer}"
+                )
+                provider, model_id, answer = await pick_and_call(
+                    correction_prompt, category, quota_queue=queue
+                )
+                remaining_findings = verify_math_answer(answer)
+                if remaining_findings:
+                    raise RuntimeError(
+                        "math_verification_failed: "
+                        + " | ".join(remaining_findings[:3])
+                    )
         completed = await queue.complete(
             job_id,
             lease_token,
