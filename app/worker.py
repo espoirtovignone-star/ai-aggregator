@@ -99,8 +99,20 @@ async def run_worker(queue: DurableKofiQueue, stop: asyncio.Event) -> None:
     concurrency = max(1, min(3, int(os.environ.get("KOFI_QUEUE_CONCURRENCY", "1"))))
     poll_seconds = max(1.0, min(15.0, float(os.environ.get("KOFI_QUEUE_POLL_SECONDS", "2"))))
     logger.info("Worker Kofi démarré (concurrence=%s).", concurrency)
+    loop = asyncio.get_running_loop()
+    last_cleanup = loop.time() - 3600  # Nettoyage immédiat au démarrage, puis toutes les heures.
 
     while not stop.is_set():
+        if loop.time() - last_cleanup >= 3600:
+            try:
+                deleted = await queue.cleanup(retention_days=14, limit=1000)
+                if deleted:
+                    logger.info("Nettoyage Kofi : %s tâches terminées/échouées supprimées (>14 jours).", deleted)
+            except Exception:
+                # Un échec de nettoyage ne doit jamais interrompre le traitement des exercices.
+                logger.exception("Nettoyage périodique de la file Kofi impossible.")
+            last_cleanup = loop.time()
+
         try:
             jobs = await queue.claim(
                 worker_id,
