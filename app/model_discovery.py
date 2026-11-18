@@ -427,6 +427,32 @@ def providers_en_pause() -> dict:
     }
 
 
+def signaler_provider_echec(provider: str, raison: str = "") -> int:
+    """Ouvre un circuit fournisseur après deux pannes serveur/réseau consécutives.
+
+    Le compteur est partagé entre les modèles d'un même fournisseur : changer
+    de modèle ne doit pas masquer une panne de l'API amont. La pause augmente
+    progressivement (90 s, 180 s, 360 s...) sans dépasser 15 minutes.
+    """
+    cache = _charger_cache()
+    echecs = cache.setdefault("pannes_provider", {})
+    entree = echecs.get(provider, {"n": 0, "t": 0})
+    if time.time() - entree.get("t", 0) > 900:
+        entree = {"n": 0, "t": 0}
+    entree["n"] = int(entree.get("n", 0)) + 1
+    entree["t"] = time.time()
+    echecs[provider] = entree
+    if entree["n"] < 2:
+        _sauver_cache()
+        return 0
+    duree = min(900, 90 * (2 ** min(entree["n"] - 2, 4)))
+    cache.setdefault("pauses", {})[provider] = time.time() + duree
+    _sauver_cache()
+    logger.warning("[Circuit] %s mis en pause %ss après %s pannes réseau/serveur (%s)",
+                   provider, duree, entree["n"], (raison or "")[:120])
+    return duree
+
+
 def signaler_provider_pause(provider: str, duree: int = 1800, raison: str = "") -> int:
     """Met temporairement un provider en pause après une erreur de compte ou d'accès."""
     cache = _charger_cache()
