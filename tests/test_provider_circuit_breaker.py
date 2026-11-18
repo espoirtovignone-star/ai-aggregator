@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 import app.model_discovery as discovery
+from app.config import ModelConfig
 
 
 class ProviderCircuitBreakerTests(unittest.TestCase):
@@ -27,6 +28,24 @@ class ProviderCircuitBreakerTests(unittest.TestCase):
         discovery.signaler_provider_echec("openrouter", "timeout")
         self.assertEqual(discovery.signaler_provider_echec("openrouter", "timeout"), 90)
         self.assertEqual(discovery.signaler_provider_echec("openrouter", "timeout"), 180)
+
+
+    def test_live_catalog_removes_stale_curated_models(self):
+        self.cache["modeles"] = [{
+            "provider": "groq",
+            "model_id": "groq/current-free-model",
+            "categories": ["general"],
+            "note": 70,
+        }]
+        with patch.object(discovery, "MODELS", [
+            ModelConfig("groq", "groq/retired-model", ["general"], priority=1),
+        ]):
+            selected = discovery.candidats("general", "curated")
+
+        self.assertEqual(
+            [(model.provider, model.model_id) for model in selected],
+            [("groq", "groq/current-free-model")],
+        )
 
     def test_success_closes_provider_circuit(self):
         self.cache["echecs"]["gemini/gemma-test"] = {"n": 3, "t": 1}
