@@ -40,10 +40,45 @@ from app.file_extract import extract_text, UnsupportedFileType
 from app.model_discovery import candidats, rafraichir, resume as discovery_resume
 from app.config import DISCOVERY_ENABLED, MODEL_SELECTION_MODE
 from app.github_push import list_repos, list_folders, push_file, GithubPushError
+from app.worker import build_queue_from_environment, run_worker, worker_enabled
+from app.durable_queue import QueueConfigurationError
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Agrégateur IA", version="0.5.0")
+_kofi_worker_task: asyncio.Task | None = None
+_kofi_worker_stop: asyncio.Event | None = None
+
+
+@app.on_event("startup")
+async def _start_kofi_worker():
+    """Démarre le worker uniquement après activation explicite dans Render."""
+    global _kofi_worker_task, _kofi_worker_stop
+    if not worker_enabled():
+        logger.info("Worker Kofi désactivé (KOFI_QUEUE_WORKER_ENABLED absent).")
+        return
+    try:
+        queue = build_queue_from_environment()
+    except (QueueConfigurationError, ValueError):
+        logger.exception("Worker Kofi demandé mais configuration Supabase invalide.")
+        return
+    _kofi_worker_stop = asyncio.Event()
+    _kofi_worker_task = asyncio.create_task(run_worker(queue, _kofi_worker_stop))
+
+
+@app.on_event("shutdown")
+async def _stop_kofi_worker():
+    global _kofi_worker_task, _kofi_worker_stop
+    if _kofi_worker_stop is not None:
+        _kofi_worker_stop.set()
+    if _kofi_worker_task is not None:
+        _kofi_worker_task.cancel()
+        try:
+            await _kofi_worker_task
+        except asyncio.CancelledError:
+            pass
+    _kofi_worker_task = None
+    _kofi_worker_stop = None
 
 
 @app.on_event("startup")
