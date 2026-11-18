@@ -125,5 +125,24 @@ class CascadeDeadlineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls, ["first", "second"])
 
 
+class ForcedModelQuotaTests(unittest.IsolatedAsyncioTestCase):
+    async def test_failed_forced_attempt_is_counted_before_fallback(self):
+        from app.providers.client import ProviderError
+
+        with (
+            patch.object(router, "_modele_connu", return_value=True),
+            patch.object(router, "can_use", return_value=True),
+            patch.object(router, "call_model", side_effect=ProviderError("groq", 429, "rate limit")),
+            patch.object(router, "signaler_rate_limit"),
+            patch.object(router, "record_call") as record_call,
+        ):
+            result = await router._try_forced_model(
+                "test prompt", "groq", "test-model", estimated_total=10, timeout_seconds=1
+            )
+
+        self.assertIsNone(result)
+        record_call.assert_called_once_with("groq", tokens=0)
+
+
 if __name__ == "__main__":
     unittest.main()
