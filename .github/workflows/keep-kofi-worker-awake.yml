@@ -1,0 +1,31 @@
+name: Keep Kofi worker awake on Render Free
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ping public health page
+        env:
+          AGGREGATOR_URL: https://afroacademy-ai-aggregator.onrender.com
+        run: |
+          for attempt in 1 2 3; do
+            status=$(curl --location --silent --show-error --max-time 25 \
+              --output /dev/null --write-out "%{http_code}" "$AGGREGATOR_URL/" || true)
+            if [ "$status" -ge 200 ] && [ "$status" -lt 400 ]; then
+              echo "Aggregator reachable (HTTP $status)."
+              exit 0
+            fi
+            echo "Aggregator not ready yet (attempt $attempt, HTTP ${status:-no-response})."
+            sleep 5
+          done
+          echo "Aggregator did not respond to keepalive."
+          exit 1
