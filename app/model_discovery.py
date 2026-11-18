@@ -474,7 +474,12 @@ def est_sur_liste_noire(provider: str, model_id: str) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def modeles_decouverts() -> list[ModelConfig]:
+    # Un cache périmé ne doit pas remettre en circulation d'anciens modèles.
+    if not DISCOVERY_ENABLED:
+        return []
     cache = _charger_cache()
+    if not cache.get("modeles") or cache_perime():
+        return []
     sortie = []
     for m in cache.get("modeles", []):
         if m["provider"] not in PROVIDERS:
@@ -529,17 +534,32 @@ def candidats(category: str, mode: str | None = None) -> list[ModelConfig]:
     de la vitesse, pas de la puissance.
     """
     mode = mode or MODEL_SELECTION_MODE
+    cache = _charger_cache()
+    catalogue_frais = DISCOVERY_ENABLED and bool(cache.get("modeles")) and not cache_perime()
+    decouverts = modeles_decouverts() if catalogue_frais else []
+    ids_decouverts: dict[str, set[str]] = {}
+    for modele in decouverts:
+        ids_decouverts.setdefault(modele.provider, set()).add(modele.model_id)
+
     tous = list(MODELS)
     vus = {(m.provider, m.model_id) for m in tous}
-    for m in modeles_decouverts():
+    for m in decouverts:
         if (m.provider, m.model_id) not in vus:
             tous.append(m)
             vus.add((m.provider, m.model_id))
 
     def utilisable(m, cat):
+        # Si le catalogue frais d'un provider est disponible, il devient la
+        # source de vérité : un modèle absent n'est plus retenté en boucle.
+        present_dans_catalogue = (
+            not catalogue_frais
+            or m.provider not in ids_decouverts
+            or m.model_id in ids_decouverts[m.provider]
+        )
         return (
             cat in m.categories
             and PROVIDERS[m.provider].is_free
+            and present_dans_catalogue
             and not est_sur_liste_noire(m.provider, m.model_id)
         )
 
