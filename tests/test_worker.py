@@ -39,6 +39,40 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(queue.completed[0][2]["provider"], "groq")
         self.assertEqual(queue.retries, [])
 
+
+    async def test_math_answer_is_verified_and_corrected_before_completion(self):
+        queue = FakeQueue()
+        job = {
+            "id": "job-math",
+            "lease_token": "lease-math",
+            "attempts": 1,
+            "payload": {
+                "prompt": "Résous 5 + 7.",
+                "category": "general",
+                "verify_math": True,
+            },
+        }
+        with (
+            patch(
+                "app.router.pick_and_call",
+                new=AsyncMock(side_effect=[
+                    ("groq", "model-a", "5 + 7 = 13"),
+                    ("gemini", "model-b", "5 + 7 = 12"),
+                ]),
+            ) as call_model,
+            patch(
+                "app.worker.verify_math_answer",
+                side_effect=[["Ligne 1 : égalité fausse"], []],
+            ) as verify,
+        ):
+            await process_job(queue, job)
+
+        self.assertEqual(call_model.await_count, 2)
+        self.assertEqual(verify.call_count, 2)
+        self.assertEqual(queue.completed[0][2]["response"], "5 + 7 = 12")
+        self.assertEqual(queue.completed[0][2]["provider"], "gemini")
+        self.assertEqual(queue.retries, [])
+
     async def test_invalid_payload_is_retried_without_provider_call(self):
         queue = FakeQueue()
         job = {
