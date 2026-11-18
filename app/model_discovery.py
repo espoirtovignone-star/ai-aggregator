@@ -477,11 +477,20 @@ def signaler_echec(provider: str, model_id: str, immediat: bool = False) -> None
 
 
 def signaler_succes(provider: str, model_id: str) -> None:
-    """Un appel réussi efface l'ardoise du modèle."""
+    """Un appel réussi efface les échecs du modèle et referme le circuit."""
     cache = _charger_cache()
     cle = f"{provider}/{model_id}"
+    modifie = False
     if cle in cache["echecs"]:
         del cache["echecs"][cle]
+        modifie = True
+    if provider in cache.setdefault("pannes_provider", {}):
+        del cache["pannes_provider"][provider]
+        modifie = True
+    if provider in cache.setdefault("pauses", {}):
+        del cache["pauses"][provider]
+        modifie = True
+    if modifie:
         _sauver_cache()
 
 
