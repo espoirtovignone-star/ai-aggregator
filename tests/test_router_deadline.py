@@ -125,5 +125,58 @@ class CascadeDeadlineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls, ["first", "second"])
 
 
+class ForcedModelQuotaTests(unittest.IsolatedAsyncioTestCase):
+    async def test_failed_forced_attempt_is_counted_before_fallback(self):
+        from app.providers.client import ProviderError
+
+        with (
+            patch.object(router, "_modele_connu", return_value=True),
+            patch.object(router, "can_use", return_value=True),
+            patch.object(router, "call_model", side_effect=ProviderError("groq", 429, "rate limit")),
+            patch.object(router, "signaler_rate_limit"),
+            patch.object(router, "record_call") as record_call,
+        ):
+            result = await router._try_forced_model(
+                "test prompt", "groq", "test-model", estimated_total=10, timeout_seconds=1
+            )
+
+        self.assertIsNone(result)
+        record_call.assert_called_once_with("groq", tokens=0)
+
+
+class InvalidModelFallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_http_404_retires_bad_model_and_tries_next_provider(self):
+        from app.providers.client import ProviderError
+
+        candidates = [
+            SimpleNamespace(provider="groq", model_id="retired-model"),
+            SimpleNamespace(provider="gemini", model_id="working-model"),
+        ]
+        calls = []
+
+        async def call_model(provider, model_id, prompt):
+            calls.append((provider, model_id))
+            if model_id == "retired-model":
+                raise ProviderError(provider, 404, "model unavailable")
+            return "answer", {"input_tokens": 2, "output_tokens": 3}
+
+        with (
+            patch.object(router, "DELAI_MAX_CASCADE", 1.0),
+            patch.object(router, "_candidates_for", return_value=candidates),
+            patch.object(router, "can_use", return_value=True),
+            patch.object(router, "est_sur_liste_noire", return_value=False),
+            patch.object(router, "provider_en_pause", return_value=False),
+            patch.object(router, "call_model", side_effect=call_model),
+            patch.object(router, "record_call"),
+            patch.object(router, "signaler_echec") as signaler_echec,
+            patch.object(router, "signaler_succes"),
+        ):
+            result = await router.pick_and_call("test", "general")
+
+        self.assertEqual(result, ("gemini", "working-model", "answer"))
+        self.assertEqual(calls, [("groq", "retired-model"), ("gemini", "working-model")])
+        signaler_echec.assert_called_once_with("groq", "retired-model", immediat=True)
+
+
 if __name__ == "__main__":
     unittest.main()

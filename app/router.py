@@ -131,6 +131,12 @@ async def _try_forced_model(
             signaler_echec(provider, model_id, immediat=True)
         else:
             signaler_echec(provider, model_id)
+        # Un essai forcé consomme lui aussi une requête fournisseur, même en
+        # cas d'erreur : ne pas sous-estimer le quota et répéter les 429.
+        try:
+            record_call(provider, tokens=0)
+        except Exception:
+            pass
         logger.warning("Echec du modèle forcé %s/%s: %s, bascule sur la cascade normale", provider, model_id, e)
         return None
 

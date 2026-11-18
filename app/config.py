@@ -161,7 +161,6 @@ MODELS: list[ModelConfig] = [
     # les deux autres subissent régulièrement de la congestion upstream.
     ModelConfig("groq", "llama-3.3-70b-versatile", ["general"], priority=1),
     ModelConfig("groq", "openai/gpt-oss-20b", ["general"], priority=2),
-    ModelConfig("openrouter", "meta-llama/llama-3.3-70b-instruct:free", ["general"], priority=3),
     ModelConfig("openrouter", "nvidia/nemotron-3-nano-30b-a3b:free", ["general"], priority=4),
     ModelConfig("gemini", "gemini-2.5-flash-lite", ["general"], priority=5),
     ModelConfig("openrouter", "openai/gpt-oss-20b:free", ["general"], priority=6),

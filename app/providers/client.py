@@ -33,14 +33,56 @@ class ProviderError(Exception):
         super().__init__(f"[{provider}] HTTP {status_code}: {detail}")
 
 
+def _provider_error_status(data: dict, fallback_status: int) -> int:
+    """Classe un refus fournisseur sans conserver son message potentiellement sensible."""
+    error = data.get("error")
+    if isinstance(error, dict):
+        raw = " ".join(
+            str(error.get(key, ""))
+            for key in ("code", "type", "message")
+            if error.get(key) is not None
+        )
+    else:
+        raw = str(error or "")
+    normalized = raw.lower()
+    if any(marker in normalized for marker in ("rate limit", "rate_limit", "quota", "too many")):
+        return 429
+    if any(marker in normalized for marker in ("billing", "insufficient credit", "payment required", "insufficient balance")):
+        return 402
+    return fallback_status
+
+
+def _extract_text(content: object) -> str:
+    """Accepte le contenu texte standard et les blocs texte OpenAI multimodaux."""
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts = [
+            part["text"].strip()
+            for part in content
+            if isinstance(part, dict) and isinstance(part.get("text"), str) and part["text"].strip()
+        ]
+        return "\n".join(parts)
+    return ""
+
+
+def _token_count(usage: dict, key: str) -> int:
+    value = usage.get(key, 0)
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
 async def call_model(
     provider: str, model_id: str, prompt: str, system: str | None = None
 ) -> tuple[str, dict]:
     """
     Appelle un modèle via l'API OpenAI-compatible du provider donné.
     Retourne (contenu_texte, usage) où usage = {"input_tokens": int, "output_tokens": int}.
+    Les réponses distantes malformées sont converties en ProviderError afin que
+    le routeur puisse poursuivre sa cascade au lieu d'interrompre toute la réponse.
     """
-    cfg = PROVIDERS[provider]
     api_key = get_api_key(provider)
 
     messages = []
@@ -60,25 +102,34 @@ async def call_model(
             resp = await client.post(url, headers=headers, json=payload)
 
     if resp.status_code != 200:
-        raise ProviderError(provider, resp.status_code, resp.text[:500])
+        # Ne pas journaliser le corps brut : certains fournisseurs peuvent y
+        # recopier une partie du prompt de l'élève.
+        raise ProviderError(provider, resp.status_code, "Réponse HTTP non valide du fournisseur.")
 
-    data = resp.json()
-    # Certains providers renvoient un HTTP 200 même en cas d'erreur (quota
-    # dépassé, modèle invalide, contenu filtré...) : le corps ne contient
-    # alors pas "choices". Sans ce garde-fou, ça plantait avec un KeyError
-    # au lieu de basculer sur le modèle suivant via le fallback de pick_and_call.
-    if "choices" not in data or not data["choices"]:
-        detail = data.get("error")
-        if isinstance(detail, dict):
-            detail = detail.get("message", str(data)[:500])
-        elif not detail:
-            detail = str(data)[:500]
-        raise ProviderError(provider, resp.status_code, str(detail)[:500])
+    try:
+        data = resp.json()
+    except (ValueError, TypeError) as exc:
+        raise ProviderError(provider, resp.status_code, "Réponse JSON invalide du fournisseur.") from exc
 
-    content = data["choices"][0]["message"]["content"]
-    raw_usage = data.get("usage", {})
+    if not isinstance(data, dict):
+        raise ProviderError(provider, resp.status_code, "Format JSON inattendu du fournisseur.")
+
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        status = _provider_error_status(data, resp.status_code)
+        raise ProviderError(provider, status, "Le fournisseur n'a renvoyé aucun choix exploitable.")
+
+    first_choice = choices[0]
+    message = first_choice.get("message") if isinstance(first_choice, dict) else None
+    content = _extract_text(message.get("content")) if isinstance(message, dict) else ""
+    if not content:
+        raise ProviderError(provider, resp.status_code, "Le fournisseur a renvoyé un contenu vide ou invalide.")
+
+    raw_usage = data.get("usage")
+    if not isinstance(raw_usage, dict):
+        raw_usage = {}
     usage = {
-        "input_tokens": raw_usage.get("prompt_tokens", 0),
-        "output_tokens": raw_usage.get("completion_tokens", 0),
+        "input_tokens": _token_count(raw_usage, "prompt_tokens"),
+        "output_tokens": _token_count(raw_usage, "completion_tokens"),
     }
     return content, usage
