@@ -207,7 +207,7 @@ APP_ACCESS_TOKEN = os.environ.get("APP_ACCESS_TOKEN")
 DISCOVERY_ENABLED = os.environ.get("MODEL_DISCOVERY", "1").lower() not in ("0", "false", "non")
 
 # Au bout de combien d'heures on retourne demander aux providers ce qui est neuf.
-DISCOVERY_MAX_AGE_HOURS = float(os.environ.get("MODEL_DISCOVERY_MAX_AGE_HOURS") or "24")
+DISCOVERY_MAX_AGE_HOURS = float(os.environ.get("MODEL_DISCOVERY_MAX_AGE_HOURS") or "6")
 
 # Comment l'agrégateur choisit quel modèle appeler en premier :
 #
