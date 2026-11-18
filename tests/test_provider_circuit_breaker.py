@@ -73,6 +73,13 @@ class ProviderCircuitBreakerTests(unittest.TestCase):
             "qwen/qwen3.8-27b",
         })
 
+    def test_gemini_allowlist_excludes_paid_and_preview_models(self):
+        self.assertEqual(discovery._GEMINI_FREE_MODELS, {
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+            "gemini-2.5-pro",
+        })
+
     def test_success_closes_provider_circuit(self):
         self.cache["echecs"]["gemini/gemma-test"] = {"n": 3, "t": 1}
         self.cache["pauses"]["gemini"] = 9999999999
