@@ -2,8 +2,10 @@ import os
 import unittest
 from unittest.mock import patch
 
+import httpx
+
 from app.config import MODELS, PROVIDERS, MAX_MONTHLY_SPEND_USD
-from app.providers.client import chat_completions_url
+from app.providers.client import ProviderError, call_model, chat_completions_url
 
 
 class ProviderEndpointTests(unittest.TestCase):
@@ -84,6 +86,57 @@ class PremiumProviderGuardTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict(os.environ, {"NVIDIA_ENABLED": "false"}):
             with self.assertRaisesRegex(BudgetExceeded, "NVIDIA est désactivé"):
                 await call_premium("test", "nvidia", "some-model")
+
+
+class ProviderResponseValidationTests(unittest.IsolatedAsyncioTestCase):
+    async def _call_with_response(self, body: bytes, status_code: int = 200):
+        transport = httpx.MockTransport(
+            lambda request: httpx.Response(status_code, content=body, headers={"content-type": "application/json"})
+        )
+        client = httpx.AsyncClient(transport=transport)
+        with (
+            patch("app.providers.client.get_api_key", return_value="test-api-key"),
+            patch("app.providers.client.httpx.AsyncClient", return_value=client),
+        ):
+            return await call_model("groq", "test-model", "private student prompt")
+
+    async def test_valid_openai_compatible_response_returns_text_and_usage(self):
+        body = b'{"choices":[{"message":{"content":"  Reponse correcte  "}}],"usage":{"prompt_tokens":12,"completion_tokens":34}}'
+        result = await self._call_with_response(body)
+        self.assertEqual(result, ("Reponse correcte", {"input_tokens": 12, "output_tokens": 34}))
+
+    async def test_malformed_json_becomes_provider_error(self):
+        with self.assertRaisesRegex(ProviderError, "JSON invalide"):
+            await self._call_with_response(b"not-json")
+
+    async def test_http_200_error_payload_is_classified_for_fallback(self):
+        body = b'{"error":{"type":"rate_limit_error","message":"private prompt echoed"}}'
+        with self.assertRaises(ProviderError) as raised:
+            await self._call_with_response(body)
+        self.assertEqual(raised.exception.status_code, 429)
+        self.assertNotIn("private prompt", str(raised.exception))
+
+    async def test_missing_message_or_content_becomes_provider_error(self):
+        for body in (
+            b'{"choices":[{}]}',
+            b'{"choices":[{"message":{}}]}',
+            b'{"choices":[{"message":{"content":""}}]}',
+            b'{"choices":[]}',
+        ):
+            with self.subTest(body=body):
+                with self.assertRaises(ProviderError):
+                    await self._call_with_response(body)
+
+    async def test_multiblock_text_content_is_joined(self):
+        body = b'{"choices":[{"message":{"content":[{"type":"text","text":"Partie 1"},{"type":"text","text":"Partie 2"}]}}]}'
+        result = await self._call_with_response(body)
+        self.assertEqual(result[0], "Partie 1\\nPartie 2")
+
+    async def test_http_error_body_is_never_exposed(self):
+        with self.assertRaises(ProviderError) as raised:
+            await self._call_with_response(b'{"error":"private student prompt"}', status_code=503)
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertNotIn("private student prompt", str(raised.exception))
 
 
 if __name__ == "__main__":
