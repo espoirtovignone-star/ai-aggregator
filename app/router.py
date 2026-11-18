@@ -131,7 +131,10 @@ async def _try_forced_model(
         return provider, model_id, content
     except (ProviderError, RuntimeError, httpx.HTTPError, TimeoutError) as e:
         if isinstance(e, ProviderError) and _est_rate_limit(e):
-            signaler_rate_limit(provider, str(getattr(e, "detail", "")))
+            signaler_rate_limit(
+                provider, str(getattr(e, "detail", "")),
+                retry_after_seconds=getattr(e, "retry_after_seconds", None),
+            )
         elif isinstance(e, ProviderError) and e.status_code in (401, 403):
             signaler_provider_pause(provider, 1800, str(getattr(e, "detail", "")))
         elif isinstance(e, ProviderError) and e.status_code in (400, 404, 422):
@@ -267,7 +270,10 @@ async def pick_and_call(
                 if isinstance(e, ProviderError) and _est_rate_limit(e):
                     # Tout le provider est plafonné : on le met en pause, la
                     # boucle sautera ses autres modèles dès le tour suivant.
-                    signaler_rate_limit(m.provider, str(getattr(e, "detail", "")))
+                    signaler_rate_limit(
+                        m.provider, str(getattr(e, "detail", "")),
+                        retry_after_seconds=getattr(e, "retry_after_seconds", None),
+                    )
                 elif isinstance(e, ProviderError) and e.status_code in (401, 403):
                     signaler_provider_pause(m.provider, 1800, str(getattr(e, "detail", "")))
                 elif isinstance(e, ProviderError) and e.status_code in (400, 404, 422):
