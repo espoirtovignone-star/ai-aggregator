@@ -93,6 +93,6 @@ Sources consultées le 18 novembre 2026 :
 - Cloudflare Workers AI : https://developers.cloudflare.com/changelog/product/workers-ai/
 - Inventaire secondaire des offres gratuites (à confirmer sur les consoles officielles) : https://freeintelligence.ai/free-tiers/
 
-## Limite de capacité et décision
+Pour les demandes de mathématiques, le worker exécute aussi un contrôle déterministe ciblé des égalités numériques et de quelques erreurs symboliques connues. Si un problème est détecté, il demande une correction à un moteur, puis ne sauvegarde la réponse que si le second contrôle passe. Ce contrôle est un filet de sécurité ciblé, pas un logiciel de calcul formel général.\n\n## Limite de capacité et décision
 
 Avec 0 USD/mois, la cible réaliste est **d'accepter et conserver jusqu'à 3 000 soumissions en rafale**, si les limites d'hébergement et de stockage le permettent, puis de les traiter progressivement. Il est impossible de garantir 3 000 corrections IA lourdes instantanées avec les quotas gratuits actuels. Pour garantir un débit de réponses, il faudra des quotas contractuels/payants ou des ressources de calcul dédiées. L'interface doit afficher l'attente et ne jamais faire croire qu'un exercice a été perdu.
