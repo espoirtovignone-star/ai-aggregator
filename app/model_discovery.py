@@ -81,6 +81,15 @@ _GROQ_FREE_MODELS = {
     "qwen/qwen3.8-27b",
 }
 
+# Allowlist conservatrice des modèles Gemini dont la tarification officielle
+# indique explicitement un accès Free Tier. Le catalogue /models contient aussi
+# des modèles réservés aux niveaux payants : leur présence ne suffit pas.
+_GEMINI_FREE_MODELS = {
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-pro",
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Notation : à quel point ce modèle est probablement bon
 # ─────────────────────────────────────────────────────────────────────────────
@@ -305,6 +314,8 @@ async def _lister_gemini(client: httpx.AsyncClient) -> list[dict]:
         nom_complet = m.get("name", "")
         mid = nom_complet.replace("models/", "")
         if not mid or not _utilisable(mid):
+            continue
+        if mid not in _GEMINI_FREE_MODELS:
             continue
         if "generateContent" not in (m.get("supportedGenerationMethods") or []):
             continue
