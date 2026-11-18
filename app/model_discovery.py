@@ -72,6 +72,15 @@ _EXCLUS = (
 # gratuits par jour et renvoie des 429 dès qu'on insiste. D'où l'écart.
 _BONUS_FIABILITE = {"groq": 10, "gemini": 5, "openrouter": 0}
 
+# Allowlist conservatrice des modèles Groq documentés pour le Developer Plan.
+# L'endpoint /models peut aussi exposer des modèles payants/Enterprise/Preview :
+# leur simple présence ne prouve pas qu'ils sont gratuits sur le compte AFROACADEMY.
+_GROQ_FREE_MODELS = {
+    "openai/gpt-oss-20b",
+    "openai/gpt-oss-120b",
+    "qwen/qwen3.8-27b",
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Notation : à quel point ce modèle est probablement bon
 # ─────────────────────────────────────────────────────────────────────────────
@@ -264,6 +273,11 @@ async def _lister_groq(client: httpx.AsyncClient) -> list[dict]:
     for m in resp.json().get("data", []):
         mid = m.get("id", "")
         if not mid or not _utilisable(mid):
+            continue
+        # Ne jamais déduire la gratuité du seul fait qu'un modèle apparaît
+        # dans le catalogue : seuls les modèles explicitement vérifiés comme
+        # accessibles sur le Developer Plan sont admis dans la cascade gratuite.
+        if mid not in _GROQ_FREE_MODELS:
             continue
         if m.get("active") is False:
             continue
