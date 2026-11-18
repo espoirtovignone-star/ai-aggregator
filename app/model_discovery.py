@@ -260,7 +260,7 @@ async def _lister_openrouter(client: httpx.AsyncClient) -> list[dict]:
 
 
 async def _lister_groq(client: httpx.AsyncClient) -> list[dict]:
-    """Groq expose /models avec la clé API. Tout y est gratuit dans le free tier."""
+    """Groq expose /models ; seuls les modèles explicitement validés sont conservés."""
     cle = _cle("groq")
     if not cle:
         return []
