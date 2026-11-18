@@ -73,6 +73,38 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(queue.completed[0][2]["provider"], "gemini")
         self.assertEqual(queue.retries, [])
 
+
+    async def test_unresolved_math_error_is_retried_not_saved_as_answer(self):
+        queue = FakeQueue()
+        job = {
+            "id": "job-math-bad",
+            "lease_token": "lease-math-bad",
+            "attempts": 1,
+            "payload": {
+                "prompt": "Étudie la fonction rationnelle.",
+                "category": "general",
+                "verify_math": True,
+            },
+        }
+        with (
+            patch(
+                "app.router.pick_and_call",
+                new=AsyncMock(side_effect=[
+                    ("groq", "model-a", "Réponse incohérente"),
+                    ("gemini", "model-b", "Toujours incohérente"),
+                ]),
+            ),
+            patch(
+                "app.worker.verify_math_answer",
+                side_effect=[["erreur initiale"], ["erreur persistante"]],
+            ),
+        ):
+            await process_job(queue, job)
+
+        self.assertEqual(queue.completed, [])
+        self.assertEqual(queue.retries[0][3], "math_verification_failed")
+        self.assertGreaterEqual(queue.retries[0][2], 30)
+
     async def test_invalid_payload_is_retried_without_provider_call(self):
         queue = FakeQueue()
         job = {
