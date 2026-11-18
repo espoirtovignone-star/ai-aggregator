@@ -1,10 +1,10 @@
-# AFROACADEMY — plan de capacité gratuite pour 100 élèves
+# AFROACADEMY — plan de capacité gratuite pour 1 000 à 3 000 élèves
 
 ## Décision de conception
 
-Objectif : accepter les exercices de 100 élèves connectés, conserver chaque demande, la traiter avec une capacité contrôlée et restituer la réponse au bon élève. Le système ne doit jamais annoncer une réponse terminée avant qu'elle soit enregistrée.
+Objectif : absorber des pics de 1 000 à 3 000 élèves connectés et accepter leurs exercices, conserver chaque demande, la traiter avec une capacité contrôlée et restituer la réponse au bon élève. Le système ne doit jamais annoncer une réponse terminée avant qu'elle soit enregistrée.
 
-**Contrainte non négociable : budget d'infrastructure = 0 USD/mois.** Cette contrainte permet de préparer une file d'attente durable et une meilleure gestion de concurrence, mais ne permet pas de garantir 100 générations IA simultanées : les quotas gratuits des fournisseurs restent externes, variables et partagés. En cas de saturation, les demandes doivent rester en attente et être reprises, pas être perdues.
+**Contrainte non négociable : budget d'infrastructure = 0 USD/mois.** Cette contrainte permet de préparer une file d'attente durable et une meilleure gestion de concurrence, mais ne permet pas de garantir 1 000 à 3 000 générations IA simultanées : les quotas gratuits des fournisseurs restent externes, variables et partagés. En cas de saturation, les demandes doivent rester en attente et être reprises, pas être perdues.
 
 ## État vérifié de l'infrastructure
 
@@ -26,10 +26,16 @@ Objectif : accepter les exercices de 100 élèves connectés, conserver chaque d
 7. **Retour à l'élève** : statut `queued / processing / completed / retrying / failed`, actualisé par Realtime ou polling léger. La réponse est persistée avant de signaler `completed`.
 8. **Protection des pièces jointes** : ne pas envoyer les photos/PDF vers le endpoint texte. Leur pipeline existant reste séparé et ses métadonnées sont conservées dans la tâche.
 
-## Politique de service pour 100 élèves
+## Politique de service pour 1 000 à 3 000 élèves
 
-- Accepter jusqu'à 100 demandes simultanées si les limites de requêtes et de stockage le permettent.
-- Traiter en parallèle uniquement jusqu'au budget de concurrence et de débit réellement autorisé par les fournisseurs.
+- Concevoir la réception pour 3 000 soumissions en rafale, avec essais progressifs 100 / 500 / 1 000 / 2 000 / 3 000. La capacité de réception n'est pas la capacité d'inférence IA.
+- Stocker les images/PDF dans Supabase Storage et seulement leurs références sécurisées dans la file ; imposer des limites de taille et de conservation.
+- Ajouter identifiants idempotents, plafonds de tâches par compte et protection anti-abus.
+- Traiter en parallèle uniquement jusqu'au budget de concurrence et de débit réellement autorisé par les fournisseurs ; garder le reste en file durable.
+- Router chaque demande vers un fournisseur éligible, puis basculer seulement en cas d'échec/quota. Ne pas diffuser chaque exercice à tous les fournisseurs.
+- Créer un registre par fournisseur/modèle : RPM, TPM, RPD, contexte maximal, vision, région, conditions de données, date de vérification et état de santé.
+- Prévoir des adaptateurs indépendants pour Gemini API, Groq, Cloudflare Workers AI et tout fournisseur dont le quota est réellement confirmé dans le compte AFROACADEMY.
+- Un deuxième agrégateur ne multiplie pas les quotas des API amont. Si deux agrégateurs appellent les mêmes fournisseurs, leurs limites restent les mêmes : centraliser les compteurs et éviter les doublons.
 - Les autres demandes restent dans une file visible et durable, avec leur position approximative et un état de progression.
 - Ne jamais promettre 100 réponses instantanées ou un délai fixe avec des API gratuites.
 - Si tous les fournisseurs gratuits sont en panne ou à quota, garder les exercices en attente et afficher une explication honnête.
@@ -40,7 +46,7 @@ Objectif : accepter les exercices de 100 élèves connectés, conserver chaque d
 ### Phase A — fondation persistante
 - Ajouter migrations SQL non destructives pour `kofi_jobs`, `kofi_provider_windows` et les fonctions SQL de claim/complete/retry.
 - Ajouter tests RLS : élève A ne peut ni lire ni modifier la tâche de B.
-- Ajouter tests de concurrence : 100 claims simultanés ne donnent jamais deux travailleurs pour la même tâche.
+- Ajouter tests de concurrence : 3 000 claims simultanés ne donnent jamais deux travailleurs pour la même tâche.
 - Aucun changement aux tables existantes `conversations`, `profiles`, archives ou consentements.
 
 ### Phase B — travailleurs et quotas
@@ -56,14 +62,14 @@ Objectif : accepter les exercices de 100 élèves connectés, conserver chaque d
 - Reprendre les tâches en attente après reconnexion ou rechargement de la page.
 
 ### Phase D — tests de charge et preuve
-- 1, 10, 50 et 100 soumissions simultanées.
+- 100, 500, 1 000, 2 000 et 3 000 soumissions simultanées : d'abord avec un faux fournisseur contrôlé, puis avec des essais limités sur les fournisseurs réels.
 - Vérifier zéro perte, zéro doublon, isolation entre comptes et reprise après arrêt simulé d'un worker.
 - Mesurer taux de succès, temps médian/P95, profondeur de file, 429, erreurs et coût facturé (doit rester 0).
 - Tester sur Preview uniquement. Pas de fusion, déploiement Production, changement de forfait ni activation de fournisseur payant sans autorisation explicite.
 
 ## Conditions d'acceptation
 
-La mention « prêt pour 100 élèves » ne sera autorisée qu'après un test reproductible avec 100 comptes/tâches simulés, preuve que les 100 tâches sont conservées et que chacune aboutit à une réponse ou à un état d'échec récupérable. Ce test ne prouvera pas que les fournisseurs gratuits peuvent fournir 100 générations simultanées en temps réel ; cette limite doit rester visible dans la communication produit.
+La mention « prêt pour 3 000 soumissions simultanées » ne sera autorisée qu'après un test reproductible avec 3 000 comptes/tâches simulés, preuve que les 100 tâches sont conservées et que chacune aboutit à une réponse ou à un état d'échec récupérable. Ce test ne prouvera pas que les fournisseurs gratuits peuvent fournir 100 générations simultanées en temps réel ; cette limite doit rester visible dans la communication produit.
 
 ## Références officielles consultées
 
@@ -71,3 +77,22 @@ La mention « prêt pour 100 élèves » ne sera autorisée qu'après un test re
 - Supabase Edge Functions limits : https://supabase.com/docs/guides/functions/limits
 - Render Free services limitations : https://render.com/docs/free
 - Vercel Hobby plan and limits : https://vercel.com/docs/plans/hobby
+
+
+## Registre initial des fournisseurs IA
+
+- **Gemini API** : niveau gratuit disponible, mais quotas par projet/modèle et variables. Lire les limites exactes dans AI Studio pour les clés AFROACADEMY ; ne pas extrapoler une capacité garantie. Les conditions de traitement des données du niveau gratuit doivent être examinées avant usage de données d'élèves.
+- **Groq** : plan gratuit avec limites par organisation et modèle. Lire les limites exactes dans la console du compte ; ne pas prendre un tableau tiers comme engagement de capacité.
+- **Cloudflare Workers AI** : allocations gratuites limitées ; certains modèles peuvent être exclus du gratuit ou refuser les requêtes faute de capacité. Ne pas le traiter comme illimité.
+- **OpenRouter modèles gratuits** : limites et disponibilité variables selon le fournisseur amont ; ne pas en faire le cœur d'une offre à haut volume.
+- **Cerebras et autres crédits d'essai** : un crédit temporaire n'est pas une offre gratuite permanente.
+- **Autres agrégateurs** : ne retenir que ceux qui apportent un quota propre, des fournisseurs différents ou une capacité contractuelle. Un simple proxy n'ajoute pas de puissance IA.
+
+Sources consultées le 18 novembre 2026 :
+- Gemini API : https://ai.google.dev/gemini-api/docs/pricing
+- Cloudflare Workers AI : https://developers.cloudflare.com/changelog/product/workers-ai/
+- Inventaire secondaire des offres gratuites (à confirmer sur les consoles officielles) : https://freeintelligence.ai/free-tiers/
+
+## Limite de capacité et décision
+
+Avec 0 USD/mois, la cible réaliste est **d'accepter et conserver jusqu'à 3 000 soumissions en rafale**, si les limites d'hébergement et de stockage le permettent, puis de les traiter progressivement. Il est impossible de garantir 3 000 corrections IA lourdes instantanées avec les quotas gratuits actuels. Pour garantir un débit de réponses, il faudra des quotas contractuels/payants ou des ressources de calcul dédiées. L'interface doit afficher l'attente et ne jamais faire croire qu'un exercice a été perdu.
