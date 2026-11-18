@@ -17,11 +17,11 @@ class MathVerifierTests(unittest.TestCase):
         self.assertEqual(verify_arithmetic_equalities("5x + 7 = 13"), [])
 
     def test_detects_known_rational_derivative_error(self):
-        answer = r"f(x)=\\frac{3x^2+ax+b}{x^2+1}; f'(0)=a+6"
+        answer = r"f(x)=\frac{3x^2+ax+b}{x^2+1}; f'(0)=a+6"
         self.assertTrue(verify_symbolic_math(answer))
 
     def test_detects_reference_function_wrong_derivative(self):
-        answer = r"f(x)=\\frac{x^2+1}{x-1}, f'(x)=\\frac{x^2+1}{(x-1)^2}"
+        answer = r"f(x)=\frac{x^2+1}{x-1}, f'(x)=\frac{x^2+1}{(x-1)^2}"
         self.assertTrue(verify_reference_rational_function(answer))
 
     def test_combines_numeric_and_symbolic_checks(self):
