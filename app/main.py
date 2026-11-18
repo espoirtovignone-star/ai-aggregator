@@ -37,7 +37,7 @@ from app.prompts import build_revision_prompt
 from app.prompt_analyzer import analyze_prompt
 from app.pdf_export import build_pdf
 from app.file_extract import extract_text, UnsupportedFileType
-from app.model_discovery import candidats, rafraichir, resume as discovery_resume
+from app.model_discovery import candidats, rafraichir, resume as discovery_resume, providers_en_pause
 from app.config import DISCOVERY_ENABLED, MODEL_SELECTION_MODE
 from app.github_push import list_repos, list_folders, push_file, GithubPushError
 from app.worker import build_queue_from_environment, run_worker, worker_enabled
@@ -480,7 +480,31 @@ async def github_push(req: GithubPushRequest):
 
 @app.get("/status", dependencies=[Depends(require_token)])
 async def status():
-    return {"quota": quota_status(), "budget": budget_status()}
+    discovery = discovery_resume()
+    pauses = providers_en_pause()
+    providers = {}
+    for name, cfg in PROVIDERS.items():
+        configured = bool(os.environ.get(cfg.api_key_env))
+        if name == "cloudflare":
+            configured = configured and bool(os.environ.get("CLOUDFLARE_ACCOUNT_ID"))
+        providers[name] = {
+            "key_configured": configured,
+            "automatic_free_routing": bool(cfg.is_free),
+            "paused_seconds": pauses.get(name, 0),
+            "discovered_models": sum(1 for model in discovery.get("modeles", []) if model.get("provider") == name),
+        }
+    return {
+        "quota": quota_status(),
+        "budget": budget_status(),
+        "providers": providers,
+        "discovery": {
+            "enabled": discovery.get("actif"),
+            "age_hours": discovery.get("age_heures"),
+            "stale": discovery.get("perime"),
+            "model_count": discovery.get("nb_modeles_decouverts"),
+            "provider_pauses": pauses,
+        },
+    }
 
 
 @app.get("/")

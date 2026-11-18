@@ -72,6 +72,24 @@ _EXCLUS = (
 # gratuits par jour et renvoie des 429 dès qu'on insiste. D'où l'écart.
 _BONUS_FIABILITE = {"groq": 10, "gemini": 5, "openrouter": 0}
 
+# Allowlist conservatrice des modèles Groq documentés pour le Developer Plan.
+# L'endpoint /models peut aussi exposer des modèles payants/Enterprise/Preview :
+# leur simple présence ne prouve pas qu'ils sont gratuits sur le compte AFROACADEMY.
+_GROQ_FREE_MODELS = {
+    "openai/gpt-oss-20b",
+    "openai/gpt-oss-120b",
+    "qwen/qwen3.8-27b",
+}
+
+# Allowlist conservatrice des modèles Gemini dont la tarification officielle
+# indique explicitement un accès Free Tier. Le catalogue /models contient aussi
+# des modèles réservés aux niveaux payants : leur présence ne suffit pas.
+_GEMINI_FREE_MODELS = {
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-pro",
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Notation : à quel point ce modèle est probablement bon
 # ─────────────────────────────────────────────────────────────────────────────
@@ -251,7 +269,7 @@ async def _lister_openrouter(client: httpx.AsyncClient) -> list[dict]:
 
 
 async def _lister_groq(client: httpx.AsyncClient) -> list[dict]:
-    """Groq expose /models avec la clé API. Tout y est gratuit dans le free tier."""
+    """Groq expose /models ; seuls les modèles explicitement validés sont conservés."""
     cle = _cle("groq")
     if not cle:
         return []
@@ -264,6 +282,11 @@ async def _lister_groq(client: httpx.AsyncClient) -> list[dict]:
     for m in resp.json().get("data", []):
         mid = m.get("id", "")
         if not mid or not _utilisable(mid):
+            continue
+        # Ne jamais déduire la gratuité du seul fait qu'un modèle apparaît
+        # dans le catalogue : seuls les modèles explicitement vérifiés comme
+        # accessibles sur le Developer Plan sont admis dans la cascade gratuite.
+        if mid not in _GROQ_FREE_MODELS:
             continue
         if m.get("active") is False:
             continue
@@ -291,6 +314,8 @@ async def _lister_gemini(client: httpx.AsyncClient) -> list[dict]:
         nom_complet = m.get("name", "")
         mid = nom_complet.replace("models/", "")
         if not mid or not _utilisable(mid):
+            continue
+        if mid not in _GEMINI_FREE_MODELS:
             continue
         if "generateContent" not in (m.get("supportedGenerationMethods") or []):
             continue
@@ -356,6 +381,7 @@ def _charger_cache() -> dict:
     _cache.setdefault("modeles", [])
     _cache.setdefault("maj", 0)
     _cache.setdefault("pauses", {})
+    _cache.setdefault("pannes_provider", {})
     return _cache
 
 
@@ -396,18 +422,24 @@ async def rafraichir(force: bool = False) -> dict:
     return {"actif": True, "modeles": len(cache["modeles"]), "maj": cache["maj"], "rafraichi": bool(modeles)}
 
 
-def signaler_rate_limit(provider: str, message: str = "") -> int:
+def signaler_rate_limit(
+    provider: str, message: str = "", retry_after_seconds: float | None = None
+) -> int:
     """
-    Met TOUT le provider en pause après un 429. Renvoie la durée de la pause.
-    Un message évoquant une limite journalière déclenche une pause plus longue.
+    Met tout le fournisseur en pause après un 429.
+    Respecte Retry-After quand il est fourni, sinon applique les délais locaux.
     """
     cache = _charger_cache()
     texte = (message or "").lower()
     journalier = any(mot in texte for mot in ("per day", "par jour", "daily", "day limit", "free-models-per-day"))
-    duree = PAUSE_LIMITE_JOURNALIERE if journalier else PAUSE_RATE_LIMIT
+    fallback = PAUSE_LIMITE_JOURNALIERE if journalier else PAUSE_RATE_LIMIT
+    if retry_after_seconds is not None:
+        duree = max(30, min(24 * 3600, int(retry_after_seconds)))
+    else:
+        duree = fallback
     cache.setdefault("pauses", {})[provider] = time.time() + duree
     _sauver_cache()
-    logger.warning("[Quota] %s en pause %s min (%s)", provider, duree // 60, message[:120])
+    logger.warning("[Quota] %s en pause %ss (%s)", provider, duree, (message or "")[:120])
     return duree
 
 
@@ -425,6 +457,32 @@ def providers_en_pause() -> dict:
         for p, fin in (cache.get("pauses") or {}).items()
         if fin > maintenant
     }
+
+
+def signaler_provider_echec(provider: str, raison: str = "") -> int:
+    """Ouvre un circuit fournisseur après deux pannes serveur/réseau consécutives.
+
+    Le compteur est partagé entre les modèles d'un même fournisseur : changer
+    de modèle ne doit pas masquer une panne de l'API amont. La pause augmente
+    progressivement (90 s, 180 s, 360 s...) sans dépasser 15 minutes.
+    """
+    cache = _charger_cache()
+    echecs = cache.setdefault("pannes_provider", {})
+    entree = echecs.get(provider, {"n": 0, "t": 0})
+    if time.time() - entree.get("t", 0) > 900:
+        entree = {"n": 0, "t": 0}
+    entree["n"] = int(entree.get("n", 0)) + 1
+    entree["t"] = time.time()
+    echecs[provider] = entree
+    if entree["n"] < 2:
+        _sauver_cache()
+        return 0
+    duree = min(900, 90 * (2 ** min(entree["n"] - 2, 4)))
+    cache.setdefault("pauses", {})[provider] = time.time() + duree
+    _sauver_cache()
+    logger.warning("[Circuit] %s mis en pause %ss après %s pannes réseau/serveur (%s)",
+                   provider, duree, entree["n"], (raison or "")[:120])
+    return duree
 
 
 def signaler_provider_pause(provider: str, duree: int = 1800, raison: str = "") -> int:
@@ -451,11 +509,20 @@ def signaler_echec(provider: str, model_id: str, immediat: bool = False) -> None
 
 
 def signaler_succes(provider: str, model_id: str) -> None:
-    """Un appel réussi efface l'ardoise du modèle."""
+    """Un appel réussi efface les échecs du modèle et referme le circuit."""
     cache = _charger_cache()
     cle = f"{provider}/{model_id}"
+    modifie = False
     if cle in cache["echecs"]:
         del cache["echecs"][cle]
+        modifie = True
+    if provider in cache.setdefault("pannes_provider", {}):
+        del cache["pannes_provider"][provider]
+        modifie = True
+    if provider in cache.setdefault("pauses", {}):
+        del cache["pauses"][provider]
+        modifie = True
+    if modifie:
         _sauver_cache()
 
 
@@ -529,6 +596,14 @@ def candidats(category: str, mode: str | None = None) -> list[ModelConfig]:
     de la vitesse, pas de la puissance.
     """
     mode = mode or MODEL_SELECTION_MODE
+    cache = _charger_cache()
+    catalogue_par_provider: dict[str, set[str]] = {}
+    for entree in cache.get("modeles", []):
+        provider = entree.get("provider")
+        model_id = entree.get("model_id")
+        if provider in PROVIDERS and model_id:
+            catalogue_par_provider.setdefault(provider, set()).add(model_id)
+
     tous = list(MODELS)
     vus = {(m.provider, m.model_id) for m in tous}
     for m in modeles_decouverts():
@@ -537,9 +612,19 @@ def candidats(category: str, mode: str | None = None) -> list[ModelConfig]:
             vus.add((m.provider, m.model_id))
 
     def utilisable(m, cat):
+        # Dès qu'un catalogue récent existe pour un fournisseur, il fait foi :
+        # les entrées figées absentes du catalogue sont obsolètes (ex. modèle
+        # Groq retiré ou modèle OpenRouter qui n'est plus gratuit). On ne les
+        # réessaie pas simplement parce qu'elles restent dans MODELS.
+        catalogue_connu = m.provider in catalogue_par_provider
+        modele_actif = (
+            not catalogue_connu
+            or m.model_id in catalogue_par_provider[m.provider]
+        )
         return (
             cat in m.categories
             and PROVIDERS[m.provider].is_free
+            and modele_actif
             and not est_sur_liste_noire(m.provider, m.model_id)
         )
 

@@ -29,6 +29,7 @@ from app.model_discovery import (
     signaler_echec,
     signaler_rate_limit,
     signaler_provider_pause,
+    signaler_provider_echec,
     signaler_succes,
 )
 
@@ -111,6 +112,12 @@ async def _try_forced_model(
             f"Appelle GET /models/discover?refresh=true pour rafraîchir le catalogue."
         )
 
+    # Un choix manuel ne doit pas contourner le coupe-circuit du fournisseur.
+    # On abandonne ce modèle forcé et la cascade normale cherche ailleurs.
+    if provider_en_pause(provider):
+        logger.info("Provider forcé %s en pause; bascule sur la cascade normale", provider)
+        return None
+
     if not can_use(provider, estimated_tokens=estimated_total):
         logger.info("Quota épuisé pour le modèle forcé %s/%s, bascule sur la cascade normale", provider, model_id)
         return None
@@ -124,13 +131,18 @@ async def _try_forced_model(
         return provider, model_id, content
     except (ProviderError, RuntimeError, httpx.HTTPError, TimeoutError) as e:
         if isinstance(e, ProviderError) and _est_rate_limit(e):
-            signaler_rate_limit(provider, str(getattr(e, "detail", "")))
+            signaler_rate_limit(
+                provider, str(getattr(e, "detail", "")),
+                retry_after_seconds=getattr(e, "retry_after_seconds", None),
+            )
         elif isinstance(e, ProviderError) and e.status_code in (401, 403):
             signaler_provider_pause(provider, 1800, str(getattr(e, "detail", "")))
         elif isinstance(e, ProviderError) and e.status_code in (400, 404, 422):
             signaler_echec(provider, model_id, immediat=True)
         else:
             signaler_echec(provider, model_id)
+            if not isinstance(e, ProviderError) or e.status_code in (408, 425) or e.status_code >= 500:
+                signaler_provider_echec(provider, str(e))
         logger.warning("Echec du modèle forcé %s/%s: %s, bascule sur la cascade normale", provider, model_id, e)
         return None
 
@@ -258,16 +270,22 @@ async def pick_and_call(
                 if isinstance(e, ProviderError) and _est_rate_limit(e):
                     # Tout le provider est plafonné : on le met en pause, la
                     # boucle sautera ses autres modèles dès le tour suivant.
-                    signaler_rate_limit(m.provider, str(getattr(e, "detail", "")))
+                    signaler_rate_limit(
+                        m.provider, str(getattr(e, "detail", "")),
+                        retry_after_seconds=getattr(e, "retry_after_seconds", None),
+                    )
                 elif isinstance(e, ProviderError) and e.status_code in (401, 403):
                     signaler_provider_pause(m.provider, 1800, str(getattr(e, "detail", "")))
                 elif isinstance(e, ProviderError) and e.status_code in (400, 404, 422):
                     # Un identifiant rejeté ne doit pas être retenté à chaque élève.
                     signaler_echec(m.provider, m.model_id, immediat=True)
                 else:
-                    # Les erreurs réseau/serveur restent temporaires : 3 échecs
-                    # consécutifs suffisent avant une mise à l'écart de 6 h.
+                    # Les erreurs réseau/serveur déclenchent aussi un circuit
+                    # au niveau fournisseur : changer de modèle ne contourne
+                    # pas une API amont qui est indisponible.
                     signaler_echec(m.provider, m.model_id)
+                    if not isinstance(e, ProviderError) or e.status_code in (408, 425) or e.status_code >= 500:
+                        signaler_provider_echec(m.provider, str(e))
                 # On compte quand même l'appel : un 429 consomme du quota chez
                 # la plupart des providers, et sans ça le compteur local ne
                 # voyait jamais qu'on était à sec.
