@@ -33,6 +33,35 @@ class ProviderError(Exception):
         super().__init__(f"[{provider}] HTTP {status_code}: {detail}")
 
 
+def _parse_chat_completion(provider: str, status_code: int, data: object) -> tuple[str, dict]:
+    """Valide la structure OpenAI-compatible et refuse toute réponse vide."""
+    if not isinstance(data, dict) or not isinstance(data.get("choices"), list) or not data["choices"]:
+        detail = data.get("error") if isinstance(data, dict) else None
+        if isinstance(detail, dict):
+            detail = detail.get("message", str(data)[:500])
+        elif not detail:
+            detail = str(data)[:500]
+        raise ProviderError(provider, status_code, str(detail)[:500])
+
+    choice = data["choices"][0]
+    message = choice.get("message") if isinstance(choice, dict) else None
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, str) or not content.strip():
+        raise ProviderError(provider, status_code, "Réponse vide ou contenu absent")
+
+    raw_usage = data.get("usage", {})
+    if not isinstance(raw_usage, dict):
+        raw_usage = {}
+    try:
+        usage = {
+            "input_tokens": max(0, int(raw_usage.get("prompt_tokens", 0) or 0)),
+            "output_tokens": max(0, int(raw_usage.get("completion_tokens", 0) or 0)),
+        }
+    except (TypeError, ValueError):
+        usage = {"input_tokens": 0, "output_tokens": 0}
+    return content.strip(), usage
+
+
 async def call_model(
     provider: str, model_id: str, prompt: str, system: str | None = None
 ) -> tuple[str, dict]:
@@ -71,32 +100,4 @@ async def call_model(
         data = resp.json()
     except ValueError as exc:
         raise ProviderError(provider, resp.status_code, "Réponse JSON invalide du fournisseur") from exc
-
-    # Certains providers renvoient HTTP 200 même en cas d'erreur ou sans
-    # choix. Tous ces cas doivent déclencher le fallback, jamais une KeyError.
-    if not isinstance(data, dict) or not isinstance(data.get("choices"), list) or not data["choices"]:
-        detail = data.get("error") if isinstance(data, dict) else None
-        if isinstance(detail, dict):
-            detail = detail.get("message", str(data)[:500])
-        elif not detail:
-            detail = str(data)[:500]
-        raise ProviderError(provider, resp.status_code, str(detail)[:500])
-
-    choice = data["choices"][0]
-    message = choice.get("message") if isinstance(choice, dict) else None
-    content = message.get("content") if isinstance(message, dict) else None
-    if not isinstance(content, str) or not content.strip():
-        # Une réponse vide ne doit jamais être présentée comme un succès à Kofi.
-        raise ProviderError(provider, resp.status_code, "Réponse vide ou contenu absent")
-
-    raw_usage = data.get("usage", {})
-    if not isinstance(raw_usage, dict):
-        raw_usage = {}
-    try:
-        usage = {
-            "input_tokens": max(0, int(raw_usage.get("prompt_tokens", 0) or 0)),
-            "output_tokens": max(0, int(raw_usage.get("completion_tokens", 0) or 0)),
-        }
-    except (TypeError, ValueError):
-        usage = {"input_tokens": 0, "output_tokens": 0}
-    return content.strip(), usage
+    return _parse_chat_completion(provider, resp.status_code, data)
