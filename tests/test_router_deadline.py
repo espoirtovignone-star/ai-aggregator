@@ -144,5 +144,39 @@ class ForcedModelQuotaTests(unittest.IsolatedAsyncioTestCase):
         record_call.assert_called_once_with("groq", tokens=0)
 
 
+class InvalidModelFallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_http_404_retires_bad_model_and_tries_next_provider(self):
+        from app.providers.client import ProviderError
+
+        candidates = [
+            SimpleNamespace(provider="groq", model_id="retired-model"),
+            SimpleNamespace(provider="gemini", model_id="working-model"),
+        ]
+        calls = []
+
+        async def call_model(provider, model_id, prompt):
+            calls.append((provider, model_id))
+            if model_id == "retired-model":
+                raise ProviderError(provider, 404, "model unavailable")
+            return "answer", {"input_tokens": 2, "output_tokens": 3}
+
+        with (
+            patch.object(router, "DELAI_MAX_CASCADE", 1.0),
+            patch.object(router, "_candidates_for", return_value=candidates),
+            patch.object(router, "can_use", return_value=True),
+            patch.object(router, "est_sur_liste_noire", return_value=False),
+            patch.object(router, "provider_en_pause", return_value=False),
+            patch.object(router, "call_model", side_effect=call_model),
+            patch.object(router, "record_call"),
+            patch.object(router, "signaler_echec") as signaler_echec,
+            patch.object(router, "signaler_succes"),
+        ):
+            result = await router.pick_and_call("test", "general")
+
+        self.assertEqual(result, ("gemini", "working-model", "answer"))
+        self.assertEqual(calls, [("groq", "retired-model"), ("gemini", "working-model")])
+        signaler_echec.assert_called_once_with("groq", "retired-model", immediat=True)
+
+
 if __name__ == "__main__":
     unittest.main()
