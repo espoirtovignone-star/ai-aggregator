@@ -102,6 +102,9 @@ async def process_job(queue: DurableKofiQueue, job: dict[str, Any]) -> None:
         # Backoff plafonné : 15s, 30s, 60s, 120s...
         delay = min(900, 15 * (2 ** min(max(attempts - 1, 0), 6)))
         code = "provider_unavailable"
+        if isinstance(exc, RuntimeError) and str(exc).startswith("math_verification_failed:"):
+            code = "math_verification_failed"
+            delay = max(delay, 30)
         try:
             from app.router import NoModelAvailable
             if isinstance(exc, NoModelAvailable):
