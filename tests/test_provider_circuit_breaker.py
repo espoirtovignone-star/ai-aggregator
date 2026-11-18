@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import app.model_discovery as discovery
 from app.config import ModelConfig
+from app.providers.client import ProviderError, _parse_chat_completion
 
 
 class ProviderCircuitBreakerTests(unittest.TestCase):
@@ -46,6 +47,31 @@ class ProviderCircuitBreakerTests(unittest.TestCase):
             [(model.provider, model.model_id) for model in selected],
             [("groq", "groq/current-free-model")],
         )
+
+
+    def test_empty_provider_response_is_an_error_not_a_success(self):
+        with self.assertRaises(ProviderError):
+            _parse_chat_completion("groq", 200, {"choices": []})
+
+    def test_malformed_provider_response_is_an_error_not_a_crash(self):
+        with self.assertRaises(ProviderError):
+            _parse_chat_completion("gemini", 200, {"choices": [{"message": {}}]})
+
+    def test_valid_provider_response_is_normalized(self):
+        content, usage = _parse_chat_completion("groq", 200, {
+            "choices": [{"message": {"content": "  Réponse correcte  "}}],
+            "usage": {"prompt_tokens": "12", "completion_tokens": 8},
+        })
+        self.assertEqual(content, "Réponse correcte")
+        self.assertEqual(usage, {"input_tokens": 12, "output_tokens": 8})
+
+    def test_groq_allowlist_excludes_retired_and_unverified_models(self):
+        import app.model_discovery as discovery
+        self.assertEqual(discovery._GROQ_FREE_MODELS, {
+            "openai/gpt-oss-20b",
+            "openai/gpt-oss-120b",
+            "qwen/qwen3.8-27b",
+        })
 
     def test_success_closes_provider_circuit(self):
         self.cache["echecs"]["gemini/gemma-test"] = {"n": 3, "t": 1}
