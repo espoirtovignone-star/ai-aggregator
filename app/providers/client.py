@@ -26,10 +26,14 @@ def chat_completions_url(provider: str) -> str:
 
 
 class ProviderError(Exception):
-    def __init__(self, provider: str, status_code: int, detail: str):
+    def __init__(
+        self, provider: str, status_code: int, detail: str,
+        retry_after_seconds: float | None = None,
+    ):
         self.provider = provider
         self.status_code = status_code
         self.detail = detail
+        self.retry_after_seconds = retry_after_seconds
         super().__init__(f"[{provider}] HTTP {status_code}: {detail}")
 
 
@@ -99,7 +103,15 @@ async def call_model(
             resp = await client.post(url, headers=headers, json=payload)
 
     if resp.status_code != 200:
-        raise ProviderError(provider, resp.status_code, resp.text[:500])
+        retry_after = resp.headers.get("retry-after")
+        try:
+            retry_after_seconds = max(0.0, float(retry_after)) if retry_after else None
+        except (TypeError, ValueError):
+            retry_after_seconds = None
+        raise ProviderError(
+            provider, resp.status_code, resp.text[:500],
+            retry_after_seconds=retry_after_seconds,
+        )
 
     try:
         data = resp.json()
