@@ -222,8 +222,6 @@ async def pick_and_call(
             if not can_use(m.provider, estimated_tokens=estimated_total):
                 logger.info("Quota local insuffisant pour %s/%s, on saute", m.provider, m.model_id)
                 continue
-            if not await reserve_shared_quota(m.provider, m.model_id):
-                continue
             if est_sur_liste_noire(m.provider, m.model_id):
                 logger.info("[Routage] modèle ignoré (liste noire): %s/%s", m.provider, m.model_id)
                 continue
@@ -231,6 +229,9 @@ async def pick_and_call(
             # modèles, c'est le compte entier qui est plafonné.
             if provider_en_pause(m.provider):
                 logger.info("[Routage] provider ignoré (en pause): %s", m.provider)
+                continue
+            # Ne réserver le quota qu'une fois le modèle éligible, juste avant l'appel.
+            if not await reserve_shared_quota(m.provider, m.model_id):
                 continue
             if time.monotonic() - debut > DELAI_MAX_CASCADE:
                 logger.warning("Cascade interrompue après %ss, on rend la main", DELAI_MAX_CASCADE)
