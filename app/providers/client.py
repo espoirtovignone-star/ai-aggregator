@@ -82,7 +82,12 @@ async def call_model(
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
 
-    url = chat_completions_url(provider)
+    try:
+        url = chat_completions_url(provider)
+    except RuntimeError as exc:
+        # Une configuration manquante (ex. Account ID Cloudflare) concerne
+        # tout le fournisseur : on l'écarte immédiatement de la cascade.
+        raise ProviderError(provider, 401, str(exc)) from exc
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {"model": model_id, "messages": messages}
     # Anthropic exige max_tokens explicitement via sa couche de compat OpenAI
