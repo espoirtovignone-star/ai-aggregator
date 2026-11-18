@@ -422,18 +422,24 @@ async def rafraichir(force: bool = False) -> dict:
     return {"actif": True, "modeles": len(cache["modeles"]), "maj": cache["maj"], "rafraichi": bool(modeles)}
 
 
-def signaler_rate_limit(provider: str, message: str = "") -> int:
+def signaler_rate_limit(
+    provider: str, message: str = "", retry_after_seconds: float | None = None
+) -> int:
     """
-    Met TOUT le provider en pause après un 429. Renvoie la durée de la pause.
-    Un message évoquant une limite journalière déclenche une pause plus longue.
+    Met tout le fournisseur en pause après un 429.
+    Respecte Retry-After quand il est fourni, sinon applique les délais locaux.
     """
     cache = _charger_cache()
     texte = (message or "").lower()
     journalier = any(mot in texte for mot in ("per day", "par jour", "daily", "day limit", "free-models-per-day"))
-    duree = PAUSE_LIMITE_JOURNALIERE if journalier else PAUSE_RATE_LIMIT
+    fallback = PAUSE_LIMITE_JOURNALIERE if journalier else PAUSE_RATE_LIMIT
+    if retry_after_seconds is not None:
+        duree = max(30, min(24 * 3600, int(retry_after_seconds)))
+    else:
+        duree = fallback
     cache.setdefault("pauses", {})[provider] = time.time() + duree
     _sauver_cache()
-    logger.warning("[Quota] %s en pause %s min (%s)", provider, duree // 60, message[:120])
+    logger.warning("[Quota] %s en pause %ss (%s)", provider, duree, (message or "")[:120])
     return duree
 
 
