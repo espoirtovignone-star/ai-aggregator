@@ -58,7 +58,9 @@ async def process_job(queue: DurableKofiQueue, job: dict[str, Any]) -> None:
         category = payload.get("category")
         if not isinstance(category, str) or not category.strip():
             category = await classify_prompt(prompt)
-        provider, model_id, answer = await pick_and_call(prompt, category)
+        provider, model_id, answer = await pick_and_call(
+            prompt, category, quota_queue=queue
+        )
         completed = await queue.complete(
             job_id,
             lease_token,
