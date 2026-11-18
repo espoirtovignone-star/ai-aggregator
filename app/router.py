@@ -141,6 +141,7 @@ async def pick_and_call(
     forced_provider: str | None = None,
     forced_model_id: str | None = None,
     mode: str | None = None,
+    quota_queue=None,
 ) -> tuple[str, str, str]:
     """
     Essaie les modèles gratuits de la catégorie dans l'ordre de priorité, en
@@ -154,6 +155,27 @@ async def pick_and_call(
     """
     estimated_input = len(prompt) // 4
     estimated_total = estimated_input + 500
+
+    async def reserve_shared_quota(provider: str, model_id: str) -> bool:
+        if quota_queue is None:
+            return True
+        cfg = PROVIDERS[provider]
+        try:
+            allowed = await quota_queue.reserve_provider_quota(
+                provider=provider,
+                model_id=model_id,
+                rpm=cfg.rpm,
+                rpd=cfg.rpd,
+                tpm=cfg.tpm,
+                estimated_tokens=estimated_total,
+            )
+        except Exception:
+            # Mode file durable : échec de la base de quota = refus prudent.
+            logger.exception("Réservation du quota partagé impossible pour %s/%s", provider, model_id)
+            return False
+        if not allowed:
+            logger.info("Quota partagé atteint pour %s/%s", provider, model_id)
+        return allowed
 
     debut = time.monotonic()
     provider_elapsed: dict[str, float] = {}
@@ -199,6 +221,8 @@ async def pick_and_call(
                 continue
             if not can_use(m.provider, estimated_tokens=estimated_total):
                 logger.info("Quota local insuffisant pour %s/%s, on saute", m.provider, m.model_id)
+                continue
+            if not await reserve_shared_quota(m.provider, m.model_id):
                 continue
             if est_sur_liste_noire(m.provider, m.model_id):
                 logger.info("[Routage] modèle ignoré (liste noire): %s/%s", m.provider, m.model_id)
