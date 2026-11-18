@@ -2,9 +2,9 @@ name: Python tests
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, feat/free-tier-queue-100-students]
   push:
-    branches: [main, fix/free-provider-fallback-reliability]
+    branches: [main, feat/free-tier-queue-100-students, fix/provider-circuit-breaker]
 
 jobs:
   unit-tests:
