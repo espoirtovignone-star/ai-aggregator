@@ -59,6 +59,8 @@ class DurableQueueTests(unittest.IsolatedAsyncioTestCase):
                 return httpx.Response(200, json=True)
             if request.url.path.endswith("/retry_kofi_job"):
                 return httpx.Response(200, json="retrying")
+            if request.url.path.endswith("/cleanup_kofi_queue"):
+                return httpx.Response(200, json=7)
             return httpx.Response(200, json=False)
 
         queue = self.make_queue(handler)
@@ -72,6 +74,7 @@ class DurableQueueTests(unittest.IsolatedAsyncioTestCase):
                 "groq", "model-x", 5, 100, 6000, 900
             )
         )
+        self.assertEqual(await queue.cleanup(retention_days=14, limit=500), 7)
 
         self.assertEqual(
             [path.rsplit("/", 1)[-1] for path, _ in calls],
@@ -79,6 +82,7 @@ class DurableQueueTests(unittest.IsolatedAsyncioTestCase):
                 "complete_kofi_job",
                 "retry_kofi_job",
                 "reserve_kofi_provider_quota",
+                "cleanup_kofi_queue",
             ],
         )
         self.assertEqual(calls[1][1]["p_public_error_code"], "provider_busy")
