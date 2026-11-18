@@ -11,7 +11,7 @@ from app.math_verifier import (
 class MathVerifierTests(unittest.TestCase):
     def test_detects_wrong_numeric_equality(self):
         self.assertTrue(verify_arithmetic_equalities("5 + 7 = 13"))
-        self.assertEqual(verify_arithmetic_equalities(r"\\frac{16}{4}=4"), [])
+        self.assertEqual(verify_arithmetic_equalities(r"\frac{16}{4}=4"), [])
 
     def test_ignores_symbolic_equalities(self):
         self.assertEqual(verify_arithmetic_equalities("5x + 7 = 13"), [])
