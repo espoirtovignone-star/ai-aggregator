@@ -112,6 +112,12 @@ async def _try_forced_model(
             f"Appelle GET /models/discover?refresh=true pour rafraîchir le catalogue."
         )
 
+    # Un choix manuel ne doit pas contourner le coupe-circuit du fournisseur.
+    # On abandonne ce modèle forcé et la cascade normale cherche ailleurs.
+    if provider_en_pause(provider):
+        logger.info("Provider forcé %s en pause; bascule sur la cascade normale", provider)
+        return None
+
     if not can_use(provider, estimated_tokens=estimated_total):
         logger.info("Quota épuisé pour le modèle forcé %s/%s, bascule sur la cascade normale", provider, model_id)
         return None
