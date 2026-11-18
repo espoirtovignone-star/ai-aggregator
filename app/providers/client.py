@@ -41,7 +41,12 @@ async def call_model(
     Retourne (contenu_texte, usage) où usage = {"input_tokens": int, "output_tokens": int}.
     """
     cfg = PROVIDERS[provider]
-    api_key = get_api_key(provider)
+    try:
+        api_key = get_api_key(provider)
+    except RuntimeError as exc:
+        # Une clé absente/invalide est un problème du compte entier, pas du
+        # modèle choisi : le routeur ouvrira immédiatement le circuit 401.
+        raise ProviderError(provider, 401, str(exc)) from exc
 
     messages = []
     if system:
@@ -62,23 +67,36 @@ async def call_model(
     if resp.status_code != 200:
         raise ProviderError(provider, resp.status_code, resp.text[:500])
 
-    data = resp.json()
-    # Certains providers renvoient un HTTP 200 même en cas d'erreur (quota
-    # dépassé, modèle invalide, contenu filtré...) : le corps ne contient
-    # alors pas "choices". Sans ce garde-fou, ça plantait avec un KeyError
-    # au lieu de basculer sur le modèle suivant via le fallback de pick_and_call.
-    if "choices" not in data or not data["choices"]:
-        detail = data.get("error")
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        raise ProviderError(provider, resp.status_code, "Réponse JSON invalide du fournisseur") from exc
+
+    # Certains providers renvoient HTTP 200 même en cas d'erreur ou sans
+    # choix. Tous ces cas doivent déclencher le fallback, jamais une KeyError.
+    if not isinstance(data, dict) or not isinstance(data.get("choices"), list) or not data["choices"]:
+        detail = data.get("error") if isinstance(data, dict) else None
         if isinstance(detail, dict):
             detail = detail.get("message", str(data)[:500])
         elif not detail:
             detail = str(data)[:500]
         raise ProviderError(provider, resp.status_code, str(detail)[:500])
 
-    content = data["choices"][0]["message"]["content"]
+    choice = data["choices"][0]
+    message = choice.get("message") if isinstance(choice, dict) else None
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, str) or not content.strip():
+        # Une réponse vide ne doit jamais être présentée comme un succès à Kofi.
+        raise ProviderError(provider, resp.status_code, "Réponse vide ou contenu absent")
+
     raw_usage = data.get("usage", {})
-    usage = {
-        "input_tokens": raw_usage.get("prompt_tokens", 0),
-        "output_tokens": raw_usage.get("completion_tokens", 0),
-    }
-    return content, usage
+    if not isinstance(raw_usage, dict):
+        raw_usage = {}
+    try:
+        usage = {
+            "input_tokens": max(0, int(raw_usage.get("prompt_tokens", 0) or 0)),
+            "output_tokens": max(0, int(raw_usage.get("completion_tokens", 0) or 0)),
+        }
+    except (TypeError, ValueError):
+        usage = {"input_tokens": 0, "output_tokens": 0}
+    return content.strip(), usage
