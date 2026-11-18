@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   keepalive:
+    if: vars.KOFI_QUEUE_KEEPALIVE_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
